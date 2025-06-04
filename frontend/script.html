@@ -1,0 +1,795 @@
+<script>
+// ===================================
+// VARIABLES GLOBALES Y CONFIGURACIÓN
+// ===================================
+let allFreelancers = [];
+let filteredFreelancers = [];
+let currentPage = 1;
+let showBlacklist = false;
+let isLoading = false;
+const freelancersPerPage = 12;
+let searchTimeout;
+
+// ===================================
+// INICIALIZACIÓN PRINCIPAL
+// ===================================
+document.addEventListener('DOMContentLoaded', function() {
+  initializeApp();
+});
+
+async function initializeApp() {
+  try {
+    showLoading(true);
+    
+    // Cargar datos de freelancers
+    const data = await loadFreelancers();
+    allFreelancers = data;
+    filteredFreelancers = data.filter(f => !f.blacklisted);
+    
+    // Inicializar componentes
+    await initializeStats();
+    initializeFilters();
+    setupEventListeners();
+    
+    // Renderizar contenido inicial
+    renderFreelancers();
+    renderPagination();
+    
+    showLoading(false);
+    showContent();
+    
+    console.log(`✅ Aplicación inicializada con ${allFreelancers.length} freelancers`);
+    
+  } catch (error) {
+    console.error('❌ Error inicializando aplicación:', error);
+    showError('Error al cargar la aplicación. Por favor, recarga la página.');
+  }
+}
+
+// ===================================
+// CARGA DE DATOS
+// ===================================
+function loadFreelancers() {
+  return new Promise((resolve, reject) => {
+    google.script.run
+      .withSuccessHandler(data => {
+        if (!Array.isArray(data)) {
+          reject(new Error('Datos inválidos recibidos'));
+          return;
+        }
+        resolve(data);
+      })
+      .withFailureHandler(error => {
+        reject(error);
+      })
+      .getFreelancers();
+  });
+}
+
+async function initializeStats() {
+  try {
+    const stats = calculateStats();
+    updateStatsDisplay(stats);
+  } catch (error) {
+    console.error('Error cargando estadísticas:', error);
+  }
+}
+
+function calculateStats() {
+  const total = allFreelancers.length;
+  const premium = allFreelancers.filter(f => f.premium && !f.blacklisted).length;
+  const blacklisted = allFreelancers.filter(f => f.blacklisted).length;
+  const countries = [...new Set(allFreelancers.map(f => f.pais).filter(p => p && p !== 'No especificado'))].length;
+  const skills = [...new Set(allFreelancers.flatMap(f => f.skills).filter(s => s && s.trim()))].length;
+  
+  return { total, premium, blacklisted, countries, skills };
+}
+
+function updateStatsDisplay(stats) {
+  const elements = {
+    'total-freelancers': stats.total,
+    'premium-count': stats.premium,
+    'countries-count': stats.countries,
+    'skills-count': stats.skills,
+    'blacklistCounter': stats.blacklisted
+  };
+  
+  Object.entries(elements).forEach(([id, value]) => {
+    const element = document.getElementById(id);
+    if (element) {
+      element.textContent = value;
+      animateNumber(element, value);
+    }
+  });
+}
+
+// ===================================
+// FILTROS Y BÚSQUEDA
+// ===================================
+function initializeFilters() {
+  populateCountryFilter();
+  populateSkillsFilter();
+  updateBlacklistButton();
+}
+
+function populateCountryFilter() {
+  const countryFilter = document.getElementById('country-filter');
+  if (!countryFilter) return;
+  
+  const countries = [...new Set(allFreelancers
+    .map(f => f.pais)
+    .filter(p => p && p !== 'No especificado'))]
+    .sort();
+  
+  countryFilter.innerHTML = '<option value="">🌍 Todos los países</option>';
+  countries.forEach(country => {
+    const flag = getCountryFlag(country);
+    countryFilter.innerHTML += `<option value="${country}">${flag} ${country}</option>`;
+  });
+}
+
+function populateSkillsFilter() {
+  const skillsFilter = document.getElementById('skills-filter');
+  if (!skillsFilter) return;
+  
+  const skills = [...new Set(allFreelancers
+    .flatMap(f => f.skills)
+    .filter(s => s && s.trim()))]
+    .sort();
+  
+  skillsFilter.innerHTML = '<option value="">💻 Todas las tecnologías</option>';
+  skills.forEach(skill => {
+    skillsFilter.innerHTML += `<option value="${skill}">${skill}</option>`;
+  });
+}
+
+function getCountryFlag(country) {
+  const flags = {
+    'Argentina': '🇦🇷',
+    'México': '🇲🇽', 
+    'Mexico': '🇲🇽',
+    'España': '🇪🇸',
+    'Colombia': '🇨🇴',
+    'Chile': '🇨🇱',
+    'Perú': '🇵🇪',
+    'Peru': '🇵🇪',
+    'Venezuela': '🇻🇪',
+    'Ecuador': '🇪🇨',
+    'Uruguay': '🇺🇾',
+    'Paraguay': '🇵🇾',
+    'Bolivia': '🇧🇴',
+    'Estados Unidos': '🇺🇸',
+    'Canadá': '🇨🇦',
+    'Brasil': '🇧🇷'
+  };
+  return flags[country] || '🌐';
+}
+
+// ===================================
+// EVENTOS
+// ===================================
+function setupEventListeners() {
+  // Búsqueda con debounce
+  const searchInput = document.getElementById('search-input');
+  if (searchInput) {
+    searchInput.addEventListener('input', handleSearch);
+  }
+  
+  // Filtros
+  const countryFilter = document.getElementById('country-filter');
+  if (countryFilter) {
+    countryFilter.addEventListener('change', applyFilters);
+  }
+  
+  const skillsFilter = document.getElementById('skills-filter');
+  if (skillsFilter) {
+    skillsFilter.addEventListener('change', applyFilters);
+  }
+  
+  // Botón de filtro
+  const filterBtn = document.getElementById('filter-btn');
+  if (filterBtn) {
+    filterBtn.addEventListener('click', applyFilters);
+  }
+  
+  // Botón de lista negra
+  const blacklistBtn = document.getElementById('toggleBlacklistBtn');
+  if (blacklistBtn) {
+    blacklistBtn.addEventListener('click', toggleBlacklistMode);
+  }
+  
+  // Cerrar modo lista negra
+  const closeBlacklistMode = document.getElementById('closeBlacklistMode');
+  if (closeBlacklistMode) {
+    closeBlacklistMode.addEventListener('click', () => {
+      showBlacklist = false;
+      updateBlacklistButton();
+      applyFilters();
+    });
+  }
+  
+  // Estadísticas
+  const statsLink = document.getElementById('stats-link');
+  if (statsLink) {
+    statsLink.addEventListener('click', (e) => {
+      e.preventDefault();
+      showStatsModal();
+    });
+  }
+}
+
+function handleSearch(e) {
+  clearTimeout(searchTimeout);
+  searchTimeout = setTimeout(() => {
+    applyFilters();
+  }, 300);
+}
+
+function applyFilters() {
+  const searchTerm = document.getElementById('search-input')?.value.toLowerCase() || '';
+  const selectedCountry = document.getElementById('country-filter')?.value || '';
+  const selectedSkill = document.getElementById('skills-filter')?.value || '';
+  
+  filteredFreelancers = allFreelancers.filter(freelancer => {
+    // Filtro de lista negra
+    if (showBlacklist && !freelancer.blacklisted) return false;
+    if (!showBlacklist && freelancer.blacklisted) return false;
+    
+    // Filtro de búsqueda
+    if (searchTerm) {
+      const searchFields = [
+        freelancer.nombre,
+        freelancer.pais,
+        freelancer.titulo,
+        freelancer.area,
+        ...freelancer.skills
+      ].join(' ').toLowerCase();
+      
+      if (!searchFields.includes(searchTerm)) return false;
+    }
+    
+    // Filtro de país
+    if (selectedCountry && freelancer.pais !== selectedCountry) return false;
+    
+    // Filtro de habilidades
+    if (selectedSkill && !freelancer.skills.includes(selectedSkill)) return false;
+    
+    return true;
+  });
+  
+  currentPage = 1;
+  renderFreelancers();
+  renderPagination();
+  updateResultsCount();
+}
+
+function toggleBlacklistMode() {
+  showBlacklist = !showBlacklist;
+  updateBlacklistButton();
+  applyFilters();
+}
+
+function updateBlacklistButton() {
+  const btn = document.getElementById('toggleBlacklistBtn');
+  const indicator = document.getElementById('blacklist-mode-indicator');
+  
+  if (btn) {
+    btn.classList.toggle('active', showBlacklist);
+    if (showBlacklist) {
+      btn.classList.remove('btn-outline-danger');
+      btn.classList.add('btn-danger');
+    } else {
+      btn.classList.remove('btn-danger');
+      btn.classList.add('btn-outline-danger');
+    }
+  }
+  
+  if (indicator) {
+    indicator.classList.toggle('d-none', !showBlacklist);
+  }
+}
+
+// ===================================
+// RENDERIZADO
+// ===================================
+function renderFreelancers() {
+  const container = document.getElementById('freelancers-container');
+  const noResults = document.getElementById('no-results');
+  
+  if (!container) return;
+  
+  const startIndex = (currentPage - 1) * freelancersPerPage;
+  const endIndex = startIndex + freelancersPerPage;
+  const pageFreelancers = filteredFreelancers.slice(startIndex, endIndex);
+  
+  if (pageFreelancers.length === 0) {
+    container.style.display = 'none';
+    noResults.style.display = 'block';
+    return;
+  }
+  
+  container.style.display = 'grid';
+  noResults.style.display = 'none';
+  
+  container.innerHTML = pageFreelancers.map(freelancer => createFreelancerCard(freelancer)).join('');
+  
+  // Agregar clase loaded para animación
+  setTimeout(() => {
+    container.classList.add('loaded');
+  }, 100);
+}
+
+function createFreelancerCard(freelancer) {
+  const flag = getCountryFlag(freelancer.pais);
+  const skillsBadges = freelancer.skills
+    .slice(0, 4)
+    .map(skill => `<span class="badge bg-primary me-1 mb-1">${skill}</span>`)
+    .join('');
+  
+  const extraSkillsCount = freelancer.skills.length > 4 ? freelancer.skills.length - 4 : 0;
+  
+  return `
+    <div class="freelancer-card ${freelancer.premium ? 'premium' : ''} ${freelancer.blacklisted ? 'blacklisted' : ''}" 
+         data-freelancer-id="${freelancer.id}">
+      
+      ${freelancer.premium ? '<div class="premium-badge">PREMIUM</div>' : ''}
+      ${freelancer.blacklisted ? '<div class="blacklist-badge"><i class="fas fa-ban"></i></div>' : ''}
+      
+      <div class="card-header">
+        <div class="profile-section">
+          <img src="${freelancer.foto || '/default-avatar.png'}" 
+               class="profile-img" 
+               alt="${freelancer.nombre}"
+               onerror="this.src='https://via.placeholder.com/150x150/007acc/white?text=${freelancer.nombre.charAt(0)}'"
+               loading="lazy">
+          <div class="profile-info">
+            <h5 class="freelancer-name">${freelancer.nombre}</h5>
+            <p class="freelancer-title">${freelancer.titulo}</p>
+            <p class="freelancer-location">
+              ${flag} ${freelancer.pais}
+            </p>
+          </div>
+        </div>
+      </div>
+      
+      <div class="card-body">
+        <div class="skills-section mb-3">
+          ${skillsBadges}
+          ${extraSkillsCount > 0 ? `<span class="badge bg-secondary">+${extraSkillsCount}</span>` : ''}
+        </div>
+        
+        <div class="freelancer-meta">
+          ${freelancer.experiencia ? `<small class="text-muted"><i class="fas fa-clock"></i> ${freelancer.experiencia} años exp.</small>` : ''}
+          ${freelancer.tarifa ? `<small class="text-muted"><i class="fas fa-dollar-sign"></i> ${freelancer.tarifa}</small>` : ''}
+        </div>
+      </div>
+      
+      <div class="card-footer">
+        <button class="btn ${freelancer.premium ? 'btn-primary' : 'btn-outline-secondary'} w-100" 
+                onclick="openFreelancerModal('${freelancer.id}')"
+                ${!freelancer.premium ? 'disabled' : ''}>
+          <i class="fas ${freelancer.premium ? 'fa-eye' : 'fa-lock'}"></i>
+          ${freelancer.premium ? 'Ver Perfil' : 'Premium Requerido'}
+        </button>
+        
+        ${showBlacklist && freelancer.blacklisted ? `
+          <small class="text-danger mt-2 d-block">
+            <i class="fas fa-exclamation-triangle"></i> ${freelancer.motivoBlacklist || 'Reportado'}
+          </small>
+        ` : ''}
+      </div>
+    </div>
+  `;
+}
+
+function renderPagination() {
+  const container = document.getElementById('pagination-container');
+  const pagination = document.getElementById('pagination');
+  
+  if (!container || !pagination) return;
+  
+  const totalPages = Math.ceil(filteredFreelancers.length / freelancersPerPage);
+  
+  if (totalPages <= 1) {
+    container.style.display = 'none';
+    return;
+  }
+  
+  container.style.display = 'block';
+  pagination.innerHTML = createPaginationButtons(totalPages);
+}
+
+function createPaginationButtons(totalPages) {
+  let buttons = '';
+  const maxVisiblePages = 5;
+  
+  // Botón anterior
+  buttons += `
+    <li class="page-item ${currentPage === 1 ? 'disabled' : ''}">
+      <button class="page-link" onclick="changePage(${currentPage - 1})" ${currentPage === 1 ? 'disabled' : ''}>
+        <i class="fas fa-chevron-left"></i>
+      </button>
+    </li>
+  `;
+  
+  // Páginas numeradas
+  let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
+  let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+  
+  if (endPage - startPage < maxVisiblePages - 1) {
+    startPage = Math.max(1, endPage - maxVisiblePages + 1);
+  }
+  
+  for (let i = startPage; i <= endPage; i++) {
+    buttons += `
+      <li class="page-item ${i === currentPage ? 'active' : ''}">
+        <button class="page-link" onclick="changePage(${i})">${i}</button>
+      </li>
+    `;
+  }
+  
+  // Botón siguiente
+  buttons += `
+    <li class="page-item ${currentPage === totalPages ? 'disabled' : ''}">
+      <button class="page-link" onclick="changePage(${currentPage + 1})" ${currentPage === totalPages ? 'disabled' : ''}>
+        <i class="fas fa-chevron-right"></i>
+      </button>
+    </li>
+  `;
+  
+  return buttons;
+}
+
+function changePage(page) {
+  if (page < 1 || page > Math.ceil(filteredFreelancers.length / freelancersPerPage)) return;
+  
+  currentPage = page;
+  renderFreelancers();
+  renderPagination();
+  
+  // Scroll hacia arriba suavemente
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function updateResultsCount() {
+  const total = filteredFreelancers.length;
+  const showing = Math.min(freelancersPerPage, total - (currentPage - 1) * freelancersPerPage);
+  const start = total > 0 ? (currentPage - 1) * freelancersPerPage + 1 : 0;
+  const end = Math.min(start + showing - 1, total);
+  
+  // Actualizar contador si existe
+  const counter = document.getElementById('results-counter');
+  if (counter) {
+    counter.textContent = `Mostrando ${start}-${end} de ${total} freelancers`;
+  }
+}
+
+// ===================================
+// MODAL DE FREELANCER
+// ===================================
+function openFreelancerModal(freelancerId) {
+  const freelancer = allFreelancers.find(f => f.id === freelancerId);
+  if (!freelancer || !freelancer.premium) return;
+  
+  const modal = document.getElementById('freelancer-modal');
+  const modalContent = document.getElementById('modal-content');
+  
+  if (!modal || !modalContent) return;
+  
+  modalContent.innerHTML = createModalContent(freelancer);
+  
+  const bsModal = new bootstrap.Modal(modal, {
+    backdrop: 'static',
+    keyboard: true
+  });
+  
+  bsModal.show();
+}
+
+function createModalContent(freelancer) {
+  const flag = getCountryFlag(freelancer.pais);
+  const skillsBadges = freelancer.skills
+    .map(skill => `<span class="badge bg-primary me-1 mb-1">${skill}</span>`)
+    .join('');
+  
+  return `
+    <div class="modal-header">
+      <h5 class="modal-title">
+        <i class="fas fa-user"></i>
+        ${freelancer.nombre}
+        ${freelancer.premium ? '<span class="badge bg-warning ms-2">Premium</span>' : ''}
+      </h5>
+      <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+    </div>
+    
+    <div class="modal-body">
+      <div class="row">
+        <!-- Columna izquierda -->
+        <div class="col-md-4 text-center border-end">
+          <img src="${freelancer.foto || '/default-avatar.png'}" 
+               class="modal-profile-img mb-3" 
+               alt="${freelancer.nombre}"
+               onerror="this.src='https://via.placeholder.com/150x150/007acc/white?text=${freelancer.nombre.charAt(0)}'">
+          
+          <h6>${freelancer.titulo}</h6>
+          <p class="text-muted mb-3">${flag} ${freelancer.pais}</p>
+          
+          ${freelancer.blacklisted ? `
+            <div class="alert alert-danger py-2">
+              <i class="fas fa-ban"></i> En lista negra
+              ${freelancer.motivoBlacklist ? `<br><small>${freelancer.motivoBlacklist}</small>` : ''}
+            </div>
+          ` : ''}
+          
+          <!-- Contacto -->
+          <div class="contact-section">
+            <h6>Contacto</h6>
+            <div class="d-flex flex-column gap-2">
+              ${freelancer.email ? `
+                <a href="mailto:${freelancer.email}" class="btn btn-outline-primary btn-sm">
+                  <i class="fas fa-envelope"></i> Email
+                </a>
+              ` : ''}
+              ${freelancer.whatsapp ? `
+                <a href="https://wa.me/${freelancer.whatsapp}" target="_blank" class="btn btn-outline-success btn-sm">
+                  <i class="fab fa-whatsapp"></i> WhatsApp
+                </a>
+              ` : ''}
+              ${freelancer.telegram ? `
+                <a href="https://t.me/${freelancer.telegram}" target="_blank" class="btn btn-outline-info btn-sm">
+                  <i class="fab fa-telegram"></i> Telegram
+                </a>
+              ` : ''}
+            </div>
+          </div>
+          
+          <!-- Acciones de admin -->
+          <div class="admin-actions mt-3">
+            <button class="btn btn-outline-warning btn-sm" onclick="reportFreelancer('${freelancer.id}')">
+              <i class="fas fa-flag"></i> Reportar
+            </button>
+          </div>
+        </div>
+        
+        <!-- Columna derecha -->
+        <div class="col-md-8">
+          <div class="freelancer-details">
+            <!-- Información básica -->
+            <div class="section mb-4">
+              <h6><i class="fas fa-info-circle"></i> Información</h6>
+              <div class="row">
+                <div class="col-6">
+                  <small class="text-muted">Experiencia</small>
+                  <p>${freelancer.experiencia || 'No especificado'}</p>
+                </div>
+                <div class="col-6">
+                  <small class="text-muted">Área</small>
+                  <p>${freelancer.area || 'General'}</p>
+                </div>
+                <div class="col-6">
+                  <small class="text-muted">Tarifa</small>
+                  <p>${freelancer.tarifa || 'A consultar'}</p>
+                </div>
+                <div class="col-6">
+                  <small class="text-muted">Disponibilidad</small>
+                  <p>${freelancer.disponibilidad || 'A consultar'}</p>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Habilidades -->
+            <div class="section mb-4">
+              <h6><i class="fas fa-cogs"></i> Tecnologías y Habilidades</h6>
+              <div class="skills-container">
+                ${skillsBadges}
+              </div>
+            </div>
+            
+            <!-- Enlaces -->
+            ${(freelancer.cvUrl || freelancer.portafolio) ? `
+              <div class="section mb-4">
+                <h6><i class="fas fa-link"></i> Enlaces</h6>
+                <div class="d-flex gap-2">
+                  ${freelancer.cvUrl && freelancer.cvUrl !== '#' ? `
+                    <a href="${freelancer.cvUrl}" target="_blank" class="btn btn-primary btn-sm">
+                      <i class="fas fa-file-pdf"></i> CV/Resumé
+                    </a>
+                  ` : ''}
+                  ${freelancer.portafolio ? `
+                    <a href="${freelancer.portafolio}" target="_blank" class="btn btn-outline-primary btn-sm">
+                      <i class="fas fa-briefcase"></i> Portafolio
+                    </a>
+                  ` : ''}
+                </div>
+              </div>
+            ` : ''}
+            
+            <!-- Comentarios -->
+            <div class="section">
+              <h6><i class="fas fa-comments"></i> Comentarios</h6>
+              <textarea id="freelancer-comments-${freelancer.id}" 
+                        class="form-control" 
+                        rows="4" 
+                        placeholder="Agregar comentarios o notas...">${freelancer.comentarios || ''}</textarea>
+              <button class="btn btn-primary btn-sm mt-2" onclick="saveFreelancerComments('${freelancer.id}')">
+                <i class="fas fa-save"></i> Guardar
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// ===================================
+// FUNCIONES DE UTILIDAD
+// ===================================
+function showLoading(show) {
+  const loading = document.getElementById('loading');
+  if (loading) {
+    loading.style.display = show ? 'block' : 'none';
+  }
+}
+
+function showContent() {
+  const sections = ['filters-section', 'freelancers-container', 'pagination-container'];
+  sections.forEach(id => {
+    const element = document.getElementById(id);
+    if (element) {
+      element.style.display = 'block';
+    }
+  });
+}
+
+function showError(message) {
+  const loading = document.getElementById('loading');
+  if (loading) {
+    loading.innerHTML = `
+      <div class="alert alert-danger text-center">
+        <i class="fas fa-exclamation-triangle fa-2x mb-3"></i>
+        <h5>Error</h5>
+        <p>${message}</p>
+        <button class="btn btn-primary" onclick="location.reload()">
+          <i class="fas fa-redo"></i> Reintentar
+        </button>
+      </div>
+    `;
+  }
+}
+
+function animateNumber(element, targetValue) {
+  const startValue = 0;
+  const duration = 1000;
+  const startTime = performance.now();
+  
+  function updateNumber(currentTime) {
+    const elapsed = currentTime - startTime;
+    const progress = Math.min(elapsed / duration, 1);
+    const currentValue = Math.floor(startValue + (targetValue - startValue) * progress);
+    
+    element.textContent = currentValue;
+    
+    if (progress < 1) {
+      requestAnimationFrame(updateNumber);
+    }
+  }
+  
+  requestAnimationFrame(updateNumber);
+}
+
+// ===================================
+// FUNCIONES DE BACKEND
+// ===================================
+function saveFreelancerComments(freelancerId) {
+  const textarea = document.getElementById(`freelancer-comments-${freelancerId}`);
+  if (!textarea) return;
+  
+  const comments = textarea.value.trim();
+  
+  google.script.run
+    .withSuccessHandler(() => {
+      showToast('Comentarios guardados correctamente', 'success');
+      // Actualizar el freelancer en memoria
+      const freelancer = allFreelancers.find(f => f.id === freelancerId);
+      if (freelancer) {
+        freelancer.comentarios = comments;
+      }
+    })
+    .withFailureHandler(error => {
+      console.error('Error guardando comentarios:', error);
+      showToast('Error al guardar comentarios', 'error');
+    })
+    .saveFreelancerComment(freelancerId, comments);
+}
+
+function reportFreelancer(freelancerId) {
+  const modal = bootstrap.Modal.getInstance(document.getElementById('freelancer-modal'));
+  if (modal) modal.hide();
+  
+  // Configurar modal de reporte
+  const reportModal = document.getElementById('reportModal');
+  const reportModalInstance = new bootstrap.Modal(reportModal);
+  
+  // Guardar ID del freelancer para el reporte
+  reportModal.dataset.freelancerId = freelancerId;
+  
+  reportModalInstance.show();
+}
+
+function showToast(message, type = 'info') {
+  // Crear toast dinámicamente
+  const toastContainer = document.getElementById('toast-container') || createToastContainer();
+  
+  const toastElement = document.createElement('div');
+  toastElement.className = `toast align-items-center text-white bg-${type === 'error' ? 'danger' : type === 'success' ? 'success' : 'primary'} border-0`;
+  toastElement.setAttribute('role', 'alert');
+  
+  toastElement.innerHTML = `
+    <div class="d-flex">
+      <div class="toast-body">
+        <i class="fas fa-${type === 'error' ? 'exclamation-triangle' : type === 'success' ? 'check' : 'info-circle'} me-2"></i>
+        ${message}
+      </div>
+      <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+    </div>
+  `;
+  
+  toastContainer.appendChild(toastElement);
+  
+  const toast = new bootstrap.Toast(toastElement, { delay: 4000 });
+  toast.show();
+  
+  // Remover el toast después de que se oculte
+  toastElement.addEventListener('hidden.bs.toast', () => {
+    toastElement.remove();
+  });
+}
+
+function createToastContainer() {
+  const container = document.createElement('div');
+  container.id = 'toast-container';
+  container.className = 'toast-container position-fixed bottom-0 end-0 p-3';
+  container.style.zIndex = '1055';
+  document.body.appendChild(container);
+  return container;
+}
+
+function showStatsModal() {
+  const stats = calculateStats();
+  
+  const modalHtml = `
+    <div class="modal fade" id="statsModal" tabindex="-1">
+      <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">
+              <i class="fas fa-chart-bar"></i> Estadísticas del Directorio
+            </h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <div class="row text-center">
+              <div class="col-md-3 mb-3">
+                <div class="stat-card">
+                  <i class="fas fa-users fa-2x text-primary mb-2"></i>
+                  <h3>${stats.total}</h3>
+                  <p class="text-muted">Total Freelancers</p>
+                </div>
+              </div>
+              <div class="col-md-3 mb-3">
+                <div class="stat-card">
+                  <i class="fas fa-crown fa-2x text-warning mb-2"></i>
+                  <h3>${stats.premium}</h3>
+                  <p class="text-muted">Premium</p>
+                </div>
+              </div>
+              <div class="col-md-3 mb-3">
+                <div class="stat-card">
+                  <i class="fas fa-globe fa-2x text-info mb-2"></i>
+                  <h3>${stats.countries}</h3>
+                  <p class="text-muted">Países</p>
+                </div>
+              </div>
+              <div class="col-md-3 mb-3">
+                <div class="
