@@ -1,1 +1,4 @@
 # freelancer-site
+Listado de freelancers activos y registrados en el grupo de facebook https://www.facebook.com/groups/pydfreelance
+Este listado tiene la finalidad de mostrar a clientes potenciales a los freelancers disponibles que se registren a traves del grupo de facebook, asi como poder reportar y mostrar a los freelancers que no cumplen o incurren en practicas poco eticas hacia los clientes, quienes son reportados y quedaran a la vista en un apartado del listado de freelancers, este apartado sera denominado como "Lista negra" y podra ser consultada por cualquiera para validar si el freelancer que deseean contratar cumple o no con sus trabajos.
+En este listado se podran filtrar freelancers por pais, skill y/o nombre directamente, sin embargo, en la "Lista negra" solo se podra filtrar por nombre para una busqueda directa del freelancer que se quiera validar
