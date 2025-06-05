@@ -1,795 +1,639 @@
 <script>
-// ===================================
-// VARIABLES GLOBALES Y CONFIGURACIÓN
-// ===================================
-let allFreelancers = [];
-let filteredFreelancers = [];
-let currentPage = 1;
-let showBlacklist = false;
-let isLoading = false;
-const freelancersPerPage = 12;
-let searchTimeout;
+    // Variables globales
+    let allFreelancers = [];
+    let currentPage = 1;
+    const freelancersPerPage = 12;
+    let timeout; // Para el debounce del input de búsqueda
+    let showBlacklist = false;
+    let blacklistCount = 0;
 
-// ===================================
-// INICIALIZACIÓN PRINCIPAL
-// ===================================
-document.addEventListener('DOMContentLoaded', function() {
-  initializeApp();
-});
+    // Objeto para mapear países a emojis de banderas
+    const countryFlags = {
+      'Argentina': '🇦🇷', 
+      'México': '🇲🇽',
+      'España': '🇪🇸',
+      'Colombia': '🇨🇴',
+      'Chile': '🇨🇱',
+      'Perú': '🇵🇪',
+      'Venezuela': '🇻🇪',
+      'Ecuador': '🇪🇨',
+      'Bolivia': '🇧🇴',
+      'Paraguay': '🇵🇾',
+      'Uruguay': '🇺🇾',
+      'Cuba': '🇨🇺',
+      'República Dominicana': '🇩🇴',
+      'Guatemala': '🇬🇹',
+      'Honduras': '🇭🇳',
+      'El Salvador': '🇸🇻',
+      'Nicaragua': '🇳🇮',
+      'Costa Rica': '🇨🇷',
+      'Panamá': '🇵🇦',
+      'Puerto Rico': '🇵🇷',
+      // Agrega más países según sea necesario
+    };
 
-async function initializeApp() {
-  try {
-    showLoading(true);
-    
-    // Cargar datos de freelancers
-    const data = await loadFreelancers();
-    allFreelancers = data;
-    filteredFreelancers = data.filter(f => !f.blacklisted);
-    
-    // Inicializar componentes
-    await initializeStats();
-    initializeFilters();
-    setupEventListeners();
-    
-    // Renderizar contenido inicial
-    renderFreelancers();
-    renderPagination();
-    
-    showLoading(false);
-    showContent();
-    
-    console.log(`✅ Aplicación inicializada con ${allFreelancers.length} freelancers`);
-    
-  } catch (error) {
-    console.error('❌ Error inicializando aplicación:', error);
-    showError('Error al cargar la aplicación. Por favor, recarga la página.');
-  }
-}
+    /**
+     * Inicializa los filtros de país y habilidades con los datos de los freelancers.
+     * @param {Array<Object>} data - Array de objetos freelancer.
+     */
+    function initFilters(data) {
+      const countries = [...new Set(data.map(f => f.pais).filter(Boolean))].sort(); // Filtrar nulos/vacíos y ordenar
+      const skills = [...new Set(data.flatMap(f => f.skills).filter(Boolean))].sort(); // Filtrar nulos/vacíos y ordenar
+      
+      const countryFilter = document.getElementById('country-filter');
+      const skillsFilter = document.getElementById('skills-filter');
+      
+      // Limpiar selects primero
+      countryFilter.innerHTML = '<option value="">Todos los países</option>';
+      skillsFilter.innerHTML = '<option value="">Todas las habilidades</option>';
+      
+      countries.forEach(country => {
+        countryFilter.innerHTML += `<option value="${country}">${country}</option>`;
+      });
+      
+      skills.forEach(skill => {
+        skillsFilter.innerHTML += `<option value="${skill}">${skill}</option>`;
+      });
+      
+      // Actualizar contador de lista negra
+      blacklistCount = data.filter(f => f.blacklisted).length;
+      updateBlacklistCounter();
+    }
 
-// ===================================
-// CARGA DE DATOS
-// ===================================
-function loadFreelancers() {
-  return new Promise((resolve, reject) => {
-    google.script.run
-      .withSuccessHandler(data => {
-        if (!Array.isArray(data)) {
-          reject(new Error('Datos inválidos recibidos'));
-          return;
+    /**
+     * Actualiza el contador de freelancers en lista negra y el estilo del botón.
+     */
+    function updateBlacklistCounter() {
+      const counterElement = document.getElementById('blacklistCounter');
+      if (counterElement) {
+        counterElement.textContent = blacklistCount;
+      }
+      const btn = document.getElementById('toggleBlacklistBtn');
+      if (btn) {
+        btn.classList.toggle('active', showBlacklist);
+        btn.title = `${blacklistCount} perfiles en lista negra`;
+        // Cambiar estilo del botón
+        if (showBlacklist) {
+          btn.classList.remove('bg-gray-200', 'text-gray-700', 'hover:bg-gray-300');
+          btn.classList.add('bg-red-600', 'hover:bg-red-700', 'text-white');
+        } else {
+          btn.classList.remove('bg-red-600', 'hover:bg-red-700', 'text-white');
+          btn.classList.add('bg-gray-200', 'text-gray-700', 'hover:bg-gray-300');
         }
-        resolve(data);
-      })
-      .withFailureHandler(error => {
-        reject(error);
-      })
-      .getFreelancers();
-  });
-}
-
-async function initializeStats() {
-  try {
-    const stats = calculateStats();
-    updateStatsDisplay(stats);
-  } catch (error) {
-    console.error('Error cargando estadísticas:', error);
-  }
-}
-
-function calculateStats() {
-  const total = allFreelancers.length;
-  const premium = allFreelancers.filter(f => f.premium && !f.blacklisted).length;
-  const blacklisted = allFreelancers.filter(f => f.blacklisted).length;
-  const countries = [...new Set(allFreelancers.map(f => f.pais).filter(p => p && p !== 'No especificado'))].length;
-  const skills = [...new Set(allFreelancers.flatMap(f => f.skills).filter(s => s && s.trim()))].length;
-  
-  return { total, premium, blacklisted, countries, skills };
-}
-
-function updateStatsDisplay(stats) {
-  const elements = {
-    'total-freelancers': stats.total,
-    'premium-count': stats.premium,
-    'countries-count': stats.countries,
-    'skills-count': stats.skills,
-    'blacklistCounter': stats.blacklisted
-  };
-  
-  Object.entries(elements).forEach(([id, value]) => {
-    const element = document.getElementById(id);
-    if (element) {
-      element.textContent = value;
-      animateNumber(element, value);
+      }
     }
-  });
-}
 
-// ===================================
-// FILTROS Y BÚSQUEDA
-// ===================================
-function initializeFilters() {
-  populateCountryFilter();
-  populateSkillsFilter();
-  updateBlacklistButton();
-}
-
-function populateCountryFilter() {
-  const countryFilter = document.getElementById('country-filter');
-  if (!countryFilter) return;
-  
-  const countries = [...new Set(allFreelancers
-    .map(f => f.pais)
-    .filter(p => p && p !== 'No especificado'))]
-    .sort();
-  
-  countryFilter.innerHTML = '<option value="">🌍 Todos los países</option>';
-  countries.forEach(country => {
-    const flag = getCountryFlag(country);
-    countryFilter.innerHTML += `<option value="${country}">${flag} ${country}</option>`;
-  });
-}
-
-function populateSkillsFilter() {
-  const skillsFilter = document.getElementById('skills-filter');
-  if (!skillsFilter) return;
-  
-  const skills = [...new Set(allFreelancers
-    .flatMap(f => f.skills)
-    .filter(s => s && s.trim()))]
-    .sort();
-  
-  skillsFilter.innerHTML = '<option value="">💻 Todas las tecnologías</option>';
-  skills.forEach(skill => {
-    skillsFilter.innerHTML += `<option value="${skill}">${skill}</option>`;
-  });
-}
-
-function getCountryFlag(country) {
-  const flags = {
-    'Argentina': '🇦🇷',
-    'México': '🇲🇽', 
-    'Mexico': '🇲🇽',
-    'España': '🇪🇸',
-    'Colombia': '🇨🇴',
-    'Chile': '🇨🇱',
-    'Perú': '🇵🇪',
-    'Peru': '🇵🇪',
-    'Venezuela': '🇻🇪',
-    'Ecuador': '🇪🇨',
-    'Uruguay': '🇺🇾',
-    'Paraguay': '🇵🇾',
-    'Bolivia': '🇧🇴',
-    'Estados Unidos': '🇺🇸',
-    'Canadá': '🇨🇦',
-    'Brasil': '🇧🇷'
-  };
-  return flags[country] || '🌐';
-}
-
-// ===================================
-// EVENTOS
-// ===================================
-function setupEventListeners() {
-  // Búsqueda con debounce
-  const searchInput = document.getElementById('search-input');
-  if (searchInput) {
-    searchInput.addEventListener('input', handleSearch);
-  }
-  
-  // Filtros
-  const countryFilter = document.getElementById('country-filter');
-  if (countryFilter) {
-    countryFilter.addEventListener('change', applyFilters);
-  }
-  
-  const skillsFilter = document.getElementById('skills-filter');
-  if (skillsFilter) {
-    skillsFilter.addEventListener('change', applyFilters);
-  }
-  
-  // Botón de filtro
-  const filterBtn = document.getElementById('filter-btn');
-  if (filterBtn) {
-    filterBtn.addEventListener('click', applyFilters);
-  }
-  
-  // Botón de lista negra
-  const blacklistBtn = document.getElementById('toggleBlacklistBtn');
-  if (blacklistBtn) {
-    blacklistBtn.addEventListener('click', toggleBlacklistMode);
-  }
-  
-  // Cerrar modo lista negra
-  const closeBlacklistMode = document.getElementById('closeBlacklistMode');
-  if (closeBlacklistMode) {
-    closeBlacklistMode.addEventListener('click', () => {
-      showBlacklist = false;
-      updateBlacklistButton();
-      applyFilters();
-    });
-  }
-  
-  // Estadísticas
-  const statsLink = document.getElementById('stats-link');
-  if (statsLink) {
-    statsLink.addEventListener('click', (e) => {
-      e.preventDefault();
-      showStatsModal();
-    });
-  }
-}
-
-function handleSearch(e) {
-  clearTimeout(searchTimeout);
-  searchTimeout = setTimeout(() => {
-    applyFilters();
-  }, 300);
-}
-
-function applyFilters() {
-  const searchTerm = document.getElementById('search-input')?.value.toLowerCase() || '';
-  const selectedCountry = document.getElementById('country-filter')?.value || '';
-  const selectedSkill = document.getElementById('skills-filter')?.value || '';
-  
-  filteredFreelancers = allFreelancers.filter(freelancer => {
-    // Filtro de lista negra
-    if (showBlacklist && !freelancer.blacklisted) return false;
-    if (!showBlacklist && freelancer.blacklisted) return false;
-    
-    // Filtro de búsqueda
-    if (searchTerm) {
-      const searchFields = [
-        freelancer.nombre,
-        freelancer.pais,
-        freelancer.titulo,
-        freelancer.area,
-        ...freelancer.skills
-      ].join(' ').toLowerCase();
+    /**
+     * Filtra la lista de freelancers según los criterios de búsqueda y filtros.
+     * Luego renderiza los resultados y la paginación.
+     */
+    function filterFreelancers() {
+      const searchTerm = document.getElementById('search-input').value.toLowerCase();
+      const country = document.getElementById('country-filter').value;
+      const skill = document.getElementById('skills-filter').value;
       
-      if (!searchFields.includes(searchTerm)) return false;
+      let filtered = allFreelancers; // Empezar con todos los freelancers
+      
+      // Aplicar filtro de lista negra primero
+      filtered = filtered.filter(f => {
+        if (showBlacklist) {
+          return f.blacklisted;
+        } else {
+          return !f.blacklisted;
+        }
+      });
+      
+      // Aplicar otros filtros basados en el modo (normal vs. blacklist)
+      filtered = filtered.filter(f => {
+        let matchesSearch;
+        let matchesCountry = country ? f.pais === country : true;
+        let matchesSkill = skill ? f.skills.includes(skill) : true;
+
+        if (showBlacklist) {
+          // En modo lista negra, la búsqueda solo por nombre
+          matchesSearch = f.nombre.toLowerCase().includes(searchTerm);
+          // Los filtros de país y habilidad se ignoran en este modo
+          matchesCountry = true; 
+          matchesSkill = true;   
+        } else {
+          // Modo normal, búsqueda en múltiples campos
+          matchesSearch = f.nombre.toLowerCase().includes(searchTerm) || 
+                          f.pais.toLowerCase().includes(searchTerm) ||
+                          f.titulo.toLowerCase().includes(searchTerm) ||
+                          f.area.toLowerCase().includes(searchTerm);
+        }
+        
+        return matchesSearch && matchesCountry && matchesSkill;
+      });
+
+      // Deshabilitar/Habilitar filtros de país y habilidades si está en modo lista negra
+      const countryFilterElement = document.getElementById('country-filter');
+      const skillsFilterElement = document.getElementById('skills-filter');
+      if (showBlacklist) {
+          countryFilterElement.disabled = true;
+          skillsFilterElement.disabled = true;
+          // Limpiar sus valores para que no apliquen un filtro no intencionado
+          countryFilterElement.value = '';
+          skillsFilterElement.value = '';
+          // Ajustar placeholder del input de búsqueda
+          document.getElementById('search-input').placeholder = "Buscar por nombre...";
+      } else {
+          countryFilterElement.disabled = false;
+          skillsFilterElement.disabled = false;
+          document.getElementById('search-input').placeholder = "Buscar por nombre, país...";
+      }
+      
+      renderFreelancers(filtered);
+      renderPagination(filtered.length);
     }
-    
-    // Filtro de país
-    if (selectedCountry && freelancer.pais !== selectedCountry) return false;
-    
-    // Filtro de habilidades
-    if (selectedSkill && !freelancer.skills.includes(selectedSkill)) return false;
-    
-    return true;
-  });
-  
-  currentPage = 1;
-  renderFreelancers();
-  renderPagination();
-  updateResultsCount();
-}
 
-function toggleBlacklistMode() {
-  showBlacklist = !showBlacklist;
-  updateBlacklistButton();
-  applyFilters();
-}
-
-function updateBlacklistButton() {
-  const btn = document.getElementById('toggleBlacklistBtn');
-  const indicator = document.getElementById('blacklist-mode-indicator');
-  
-  if (btn) {
-    btn.classList.toggle('active', showBlacklist);
-    if (showBlacklist) {
-      btn.classList.remove('btn-outline-danger');
-      btn.classList.add('btn-danger');
-    } else {
-      btn.classList.remove('btn-danger');
-      btn.classList.add('btn-outline-danger');
+    /**
+     * Alterna el estado del filtro de lista negra y vuelve a filtrar.
+     */
+    function toggleBlacklistFilter() {
+      showBlacklist = !showBlacklist;
+      currentPage = 1; // Resetear a la primera página al cambiar el filtro de lista negra
+      updateBlacklistCounter();
+      filterFreelancers();
     }
-  }
-  
-  if (indicator) {
-    indicator.classList.toggle('d-none', !showBlacklist);
-  }
-}
 
-// ===================================
-// RENDERIZADO
-// ===================================
-function renderFreelancers() {
-  const container = document.getElementById('freelancers-container');
-  const noResults = document.getElementById('no-results');
-  
-  if (!container) return;
-  
-  const startIndex = (currentPage - 1) * freelancersPerPage;
-  const endIndex = startIndex + freelancersPerPage;
-  const pageFreelancers = filteredFreelancers.slice(startIndex, endIndex);
-  
-  if (pageFreelancers.length === 0) {
-    container.style.display = 'none';
-    noResults.style.display = 'block';
-    return;
-  }
-  
-  container.style.display = 'grid';
-  noResults.style.display = 'none';
-  
-  container.innerHTML = pageFreelancers.map(freelancer => createFreelancerCard(freelancer)).join('');
-  
-  // Agregar clase loaded para animación
-  setTimeout(() => {
-    container.classList.add('loaded');
-  }, 100);
-}
+    /**
+     * Limpia todos los filtros y restablece la vista.
+     */
+    function clearFilters() {
+        document.getElementById('search-input').value = '';
+        document.getElementById('country-filter').value = '';
+        document.getElementById('skills-filter').value = '';
+        showBlacklist = false; // Restablecer filtro de lista negra
+        updateBlacklistCounter(); // Actualizar estilo del botón de lista negra
+        currentPage = 1; // Restablecer a la primera página
+        filterFreelancers(); // Volver a filtrar y renderizar
+    }
 
-function createFreelancerCard(freelancer) {
-  const flag = getCountryFlag(freelancer.pais);
-  const skillsBadges = freelancer.skills
-    .slice(0, 4)
-    .map(skill => `<span class="badge bg-primary me-1 mb-1">${skill}</span>`)
-    .join('');
-  
-  const extraSkillsCount = freelancer.skills.length > 4 ? freelancer.skills.length - 4 : 0;
-  
-  return `
-    <div class="freelancer-card ${freelancer.premium ? 'premium' : ''} ${freelancer.blacklisted ? 'blacklisted' : ''}" 
-         data-freelancer-id="${freelancer.id}">
+    /**
+     * Renderiza las tarjetas de freelancers en el contenedor.
+     * @param {Array<Object>} data - Array de objetos freelancer filtrados.
+     */
+    function renderFreelancers(data) {
+      const container = document.getElementById('freelancers-container');
+      container.innerHTML = ''; // Limpiar contenido existente
       
-      ${freelancer.premium ? '<div class="premium-badge">PREMIUM</div>' : ''}
-      ${freelancer.blacklisted ? '<div class="blacklist-badge"><i class="fas fa-ban"></i></div>' : ''}
+      if (data.length === 0) {
+        container.innerHTML = '<p class="col-span-full text-center text-gray-500 text-lg py-8">No se encontraron freelancers con los filtros aplicados.</p>';
+        return;
+      }
+
+      const start = (currentPage - 1) * freelancersPerPage;
+      const paginatedData = data.slice(start, start + freelancersPerPage);
       
-      <div class="card-header">
-        <div class="profile-section">
-          <img src="${freelancer.foto || '/default-avatar.png'}" 
-               class="profile-img" 
-               alt="${freelancer.nombre}"
-               onerror="this.src='https://via.placeholder.com/150x150/007acc/white?text=${freelancer.nombre.charAt(0)}'"
-               loading="lazy">
-          <div class="profile-info">
-            <h5 class="freelancer-name">${freelancer.nombre}</h5>
-            <p class="freelancer-title">${freelancer.titulo}</p>
-            <p class="freelancer-location">
-              ${flag} ${freelancer.pais}
+      paginatedData.forEach(freelancer => {
+        // Determinar el texto y estado del botón "Ver más"
+        let buttonText = 'Ver más';
+        let buttonDisabled = false; // Controls if the modal can be opened
+        let buttonClasses = 'bg-blue-600 hover:bg-blue-700 text-white';
+
+        if (freelancer.blacklisted) {
+            buttonText = 'Ver reportes';
+            buttonDisabled = false; // ENABLED to view reports
+            // Style for blacklisted profiles, maybe a warning color
+            buttonClasses = 'bg-red-600 hover:bg-red-700 text-white';
+        } else if (!freelancer.premium) {
+            // "Premium requerido" se eliminó, ahora simplemente está deshabilitado si no es premium
+            buttonDisabled = true; 
+            buttonClasses = 'bg-gray-400 text-gray-700 cursor-not-allowed'; // Estilo deshabilitado
+        }
+
+        const freelancerCardHTML = `
+          <div class="freelancer-card bg-white rounded-xl shadow-md hover:shadow-lg transition-transform duration-300 transform hover:-translate-y-2 p-6 text-center relative ${freelancer.blacklisted ? 'border-2 border-red-500 shadow-red-200' : ''}">
+            ${freelancer.blacklisted ? '<i class="fas fa-ban text-red-600 text-2xl absolute top-3 left-3" title="En lista negra"></i>' : ''}
+            ${freelancer.premium && !freelancer.blacklisted ? '<span class="absolute top-3 right-3 bg-yellow-400 text-yellow-900 text-xs font-semibold px-3 py-1 rounded-full shadow-sm">Destacado</span>' : ''}
+            
+            <img src="${freelancer.foto || 'https://placehold.co/120x120/A0AEC0/FFFFFF?text=No+Foto'}" 
+                 alt="${freelancer.nombre}" 
+                 class="w-28 h-28 rounded-full object-cover mb-4 mx-auto border-4 border-blue-500 shadow-md"
+                 onerror="this.onerror=null;this.src='https://placehold.co/120x120/A0AEC0/FFFFFF?text=No+Foto';">
+            
+            <h3 class="text-xl font-bold text-gray-800 mb-1">${freelancer.nombre}</h3>
+            <p class="text-sm text-gray-600 mb-2">${freelancer.titulo || 'Sin Título'}</p>
+            <p class="text-xs text-gray-500 mb-3 flex items-center justify-center gap-1">
+              ${countryFlags[freelancer.pais] || '🌐'} ${freelancer.pais || 'Desconocido'}
             </p>
-          </div>
-        </div>
-      </div>
-      
-      <div class="card-body">
-        <div class="skills-section mb-3">
-          ${skillsBadges}
-          ${extraSkillsCount > 0 ? `<span class="badge bg-secondary">+${extraSkillsCount}</span>` : ''}
-        </div>
-        
-        <div class="freelancer-meta">
-          ${freelancer.experiencia ? `<small class="text-muted"><i class="fas fa-clock"></i> ${freelancer.experiencia} años exp.</small>` : ''}
-          ${freelancer.tarifa ? `<small class="text-muted"><i class="fas fa-dollar-sign"></i> ${freelancer.tarifa}</small>` : ''}
-        </div>
-      </div>
-      
-      <div class="card-footer">
-        <button class="btn ${freelancer.premium ? 'btn-primary' : 'btn-outline-secondary'} w-100" 
-                onclick="openFreelancerModal('${freelancer.id}')"
-                ${!freelancer.premium ? 'disabled' : ''}>
-          <i class="fas ${freelancer.premium ? 'fa-eye' : 'fa-lock'}"></i>
-          ${freelancer.premium ? 'Ver Perfil' : 'Premium Requerido'}
-        </button>
-        
-        ${showBlacklist && freelancer.blacklisted ? `
-          <small class="text-danger mt-2 d-block">
-            <i class="fas fa-exclamation-triangle"></i> ${freelancer.motivoBlacklist || 'Reportado'}
-          </small>
-        ` : ''}
-      </div>
-    </div>
-  `;
-}
-
-function renderPagination() {
-  const container = document.getElementById('pagination-container');
-  const pagination = document.getElementById('pagination');
-  
-  if (!container || !pagination) return;
-  
-  const totalPages = Math.ceil(filteredFreelancers.length / freelancersPerPage);
-  
-  if (totalPages <= 1) {
-    container.style.display = 'none';
-    return;
-  }
-  
-  container.style.display = 'block';
-  pagination.innerHTML = createPaginationButtons(totalPages);
-}
-
-function createPaginationButtons(totalPages) {
-  let buttons = '';
-  const maxVisiblePages = 5;
-  
-  // Botón anterior
-  buttons += `
-    <li class="page-item ${currentPage === 1 ? 'disabled' : ''}">
-      <button class="page-link" onclick="changePage(${currentPage - 1})" ${currentPage === 1 ? 'disabled' : ''}>
-        <i class="fas fa-chevron-left"></i>
-      </button>
-    </li>
-  `;
-  
-  // Páginas numeradas
-  let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
-  let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
-  
-  if (endPage - startPage < maxVisiblePages - 1) {
-    startPage = Math.max(1, endPage - maxVisiblePages + 1);
-  }
-  
-  for (let i = startPage; i <= endPage; i++) {
-    buttons += `
-      <li class="page-item ${i === currentPage ? 'active' : ''}">
-        <button class="page-link" onclick="changePage(${i})">${i}</button>
-      </li>
-    `;
-  }
-  
-  // Botón siguiente
-  buttons += `
-    <li class="page-item ${currentPage === totalPages ? 'disabled' : ''}">
-      <button class="page-link" onclick="changePage(${currentPage + 1})" ${currentPage === totalPages ? 'disabled' : ''}>
-        <i class="fas fa-chevron-right"></i>
-      </button>
-    </li>
-  `;
-  
-  return buttons;
-}
-
-function changePage(page) {
-  if (page < 1 || page > Math.ceil(filteredFreelancers.length / freelancersPerPage)) return;
-  
-  currentPage = page;
-  renderFreelancers();
-  renderPagination();
-  
-  // Scroll hacia arriba suavemente
-  window.scrollTo({ top: 0, behavior: 'smooth' });
-}
-
-function updateResultsCount() {
-  const total = filteredFreelancers.length;
-  const showing = Math.min(freelancersPerPage, total - (currentPage - 1) * freelancersPerPage);
-  const start = total > 0 ? (currentPage - 1) * freelancersPerPage + 1 : 0;
-  const end = Math.min(start + showing - 1, total);
-  
-  // Actualizar contador si existe
-  const counter = document.getElementById('results-counter');
-  if (counter) {
-    counter.textContent = `Mostrando ${start}-${end} de ${total} freelancers`;
-  }
-}
-
-// ===================================
-// MODAL DE FREELANCER
-// ===================================
-function openFreelancerModal(freelancerId) {
-  const freelancer = allFreelancers.find(f => f.id === freelancerId);
-  if (!freelancer || !freelancer.premium) return;
-  
-  const modal = document.getElementById('freelancer-modal');
-  const modalContent = document.getElementById('modal-content');
-  
-  if (!modal || !modalContent) return;
-  
-  modalContent.innerHTML = createModalContent(freelancer);
-  
-  const bsModal = new bootstrap.Modal(modal, {
-    backdrop: 'static',
-    keyboard: true
-  });
-  
-  bsModal.show();
-}
-
-function createModalContent(freelancer) {
-  const flag = getCountryFlag(freelancer.pais);
-  const skillsBadges = freelancer.skills
-    .map(skill => `<span class="badge bg-primary me-1 mb-1">${skill}</span>`)
-    .join('');
-  
-  return `
-    <div class="modal-header">
-      <h5 class="modal-title">
-        <i class="fas fa-user"></i>
-        ${freelancer.nombre}
-        ${freelancer.premium ? '<span class="badge bg-warning ms-2">Premium</span>' : ''}
-      </h5>
-      <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-    </div>
-    
-    <div class="modal-body">
-      <div class="row">
-        <!-- Columna izquierda -->
-        <div class="col-md-4 text-center border-end">
-          <img src="${freelancer.foto || '/default-avatar.png'}" 
-               class="modal-profile-img mb-3" 
-               alt="${freelancer.nombre}"
-               onerror="this.src='https://via.placeholder.com/150x150/007acc/white?text=${freelancer.nombre.charAt(0)}'">
-          
-          <h6>${freelancer.titulo}</h6>
-          <p class="text-muted mb-3">${flag} ${freelancer.pais}</p>
-          
-          ${freelancer.blacklisted ? `
-            <div class="alert alert-danger py-2">
-              <i class="fas fa-ban"></i> En lista negra
-              ${freelancer.motivoBlacklist ? `<br><small>${freelancer.motivoBlacklist}</small>` : ''}
+            
+            <div class="flex flex-wrap justify-center gap-2 mb-4">
+              ${freelancer.skills.length > 0 ? 
+                freelancer.skills.map(skill => `<span class="bg-blue-100 text-blue-800 text-xs font-medium px-2.5 py-0.5 rounded-full">${skill}</span>`).join('') : 
+                '<span class="text-xs text-gray-400">Sin habilidades</span>'
+              }
             </div>
-          ` : ''}
-          
-          <!-- Contacto -->
-          <div class="contact-section">
-            <h6>Contacto</h6>
-            <div class="d-flex flex-column gap-2">
-              ${freelancer.email ? `
-                <a href="mailto:${freelancer.email}" class="btn btn-outline-primary btn-sm">
-                  <i class="fas fa-envelope"></i> Email
-                </a>
-              ` : ''}
-              ${freelancer.whatsapp ? `
-                <a href="https://wa.me/${freelancer.whatsapp}" target="_blank" class="btn btn-outline-success btn-sm">
-                  <i class="fab fa-whatsapp"></i> WhatsApp
-                </a>
-              ` : ''}
-              ${freelancer.telegram ? `
-                <a href="https://t.me/${freelancer.telegram}" target="_blank" class="btn btn-outline-info btn-sm">
-                  <i class="fab fa-telegram"></i> Telegram
-                </a>
-              ` : ''}
-            </div>
-          </div>
-          
-          <!-- Acciones de admin -->
-          <div class="admin-actions mt-3">
-            <button class="btn btn-outline-warning btn-sm" onclick="reportFreelancer('${freelancer.id}')">
-              <i class="fas fa-flag"></i> Reportar
+
+            <button class="view-more-btn mt-auto w-full font-semibold py-2 px-4 rounded-lg transition duration-300 shadow-md ${buttonClasses}" 
+                    onclick="${buttonDisabled ? 'return false;' : `openModal(${JSON.stringify(freelancer).replace(/"/g, '&quot;')})`}"
+                    ${buttonDisabled ? 'disabled' : ''}>
+              ${buttonText}
             </button>
           </div>
+        `;
+        container.innerHTML += freelancerCardHTML;
+      });
+    }
+
+    /**
+     * Renderiza los botones de paginación.
+     * Implementa un patrón de paginación con elipses para manejar muchas páginas.
+     * @param {number} totalItems - Número total de freelancers filtrados.
+     */
+    function renderPagination(totalItems) {
+      const totalPages = Math.ceil(totalItems / freelancersPerPage);
+      const pagination = document.getElementById('pagination');
+      pagination.innerHTML = '';
+      
+      if (totalPages <= 1) return; // No mostrar paginación si solo hay una página
+
+      const maxPageButtons = 5; // Número máximo de botones de página a mostrar directamente
+      let startPage, endPage;
+
+      if (totalPages <= maxPageButtons) {
+        // Menos páginas que el máximo, mostrar todas
+        startPage = 1;
+        endPage = totalPages;
+      } else {
+        // Más páginas que el máximo, calcular el rango con elipses
+        const pagesToShowBefore = Math.floor((maxPageButtons - 1) / 2);
+        const pagesToShowAfter = Math.ceil((maxPageButtons - 1) / 2);
+
+        if (currentPage <= pagesToShowBefore + 1) {
+          startPage = 1;
+          endPage = maxPageButtons;
+        } else if (currentPage + pagesToShowAfter >= totalPages) {
+          startPage = totalPages - maxPageButtons + 1;
+          endPage = totalPages;
+        } else {
+          startPage = currentPage - pagesToShowBefore;
+          endPage = currentPage + pagesToShowAfter;
+        }
+      }
+
+      // Botón "Primera"
+      if (currentPage > 1) {
+        pagination.innerHTML += `
+          <button class="page-btn px-4 py-2 border border-gray-300 rounded-lg bg-white hover:bg-gray-100 transition duration-200" 
+                  onclick="changePage(1)">
+            Primera
+          </button>
+        `;
+      }
+
+      // Botón "Anterior"
+      if (currentPage > 1) {
+        pagination.innerHTML += `
+          <button class="page-btn px-4 py-2 border border-gray-300 rounded-lg bg-white hover:bg-gray-100 transition duration-200" 
+                  onclick="changePage(${currentPage - 1})">
+            Anterior
+          </button>
+        `;
+      }
+
+      // Elipsis al inicio
+      if (startPage > 1) {
+        pagination.innerHTML += `<span class="px-2 py-2 text-gray-500">...</span>`;
+      }
+
+      // Botones de página numerados
+      for (let i = startPage; i <= endPage; i++) {
+        pagination.innerHTML += `
+          <button class="page-btn px-4 py-2 border border-gray-300 rounded-lg bg-white hover:bg-gray-100 transition duration-200 ${i === currentPage ? 'bg-blue-600 text-white border-blue-600 hover:bg-blue-700' : ''}" 
+                  onclick="changePage(${i})">
+            ${i}
+          </button>
+        `;
+      }
+
+      // Elipsis al final
+      if (endPage < totalPages) {
+        pagination.innerHTML += `<span class="px-2 py-2 text-gray-500">...</span>`;
+      }
+
+      // Botón "Siguiente"
+      if (currentPage < totalPages) {
+        pagination.innerHTML += `
+          <button class="page-btn px-4 py-2 border border-gray-300 rounded-lg bg-white hover:bg-gray-100 transition duration-200" 
+                  onclick="changePage(${currentPage + 1})">
+            Siguiente
+          </button>
+        `;
+      }
+
+      // Botón "Última"
+      if (currentPage < totalPages) {
+        pagination.innerHTML += `
+          <button class="page-btn px-4 py-2 border border-gray-300 rounded-lg bg-white hover:bg-gray-100 transition duration-200" 
+                  onclick="changePage(${totalPages})">
+            Última
+          </button>
+        `;
+      }
+    }
+
+    /**
+     * Cambia la página actual y vuelve a renderizar los freelancers.
+     * Desplaza la vista al inicio del contenedor de freelancers para una mejor UX.
+     * @param {number} page - El número de página a la que cambiar.
+     */
+    function changePage(page) {
+      currentPage = page;
+      filterFreelancers(); // Vuelve a filtrar y renderizar la nueva página
+      
+      // Desplazarse suavemente al inicio del contenedor de freelancers
+      const container = document.getElementById('freelancers-container');
+      if (container) {
+        container.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } else {
+        // Si por alguna razón el contenedor no existe, desplázate al inicio de la ventana
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    }
+
+    /**
+     * Abre el modal de detalles del freelancer.
+     * @param {Object} freelancer - Objeto con los datos del freelancer.
+     */
+    function openModal(freelancer) {
+      const modalTitle = document.getElementById('modal-title');
+      const modalBodyContent = document.getElementById('modal-body-content');
+      const modalElement = document.getElementById('freelancer-modal');
+
+      modalTitle.textContent = freelancer.nombre;
+      
+      // Determinar si la información de contacto debe mostrarse (no blacklisted Y con permiso explícito)
+      const showContactInfo = freelancer.contactPermission && !freelancer.blacklisted;
+
+      // Construir enlaces de contacto públicos dinámicamente
+      let publicContactLinksHtml = '';
+      if (freelancer.cvUrl && freelancer.cvUrl !== '#') {
+          publicContactLinksHtml += `
+            <a href="${freelancer.cvUrl}" target="_blank" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded-lg flex items-center gap-2 transition duration-300 shadow-md ${freelancer.blacklisted ? 'disabled-link' : ''}">
+              <i class="fas fa-file-alt"></i> Ver CV
+            </a>
+          `;
+      }
+      if (freelancer.portafolio) {
+          publicContactLinksHtml += `
+            <a href="${freelancer.portafolio}" target="_blank" class="btn-portfolio hover:opacity-80 text-white font-semibold flex items-center gap-2 shadow-sm ${freelancer.blacklisted ? 'disabled-link' : ''}">
+              <i class="fas fa-briefcase"></i> Portafolio
+            </a>
+          `;
+      }
+      if (freelancer.personalPage) {
+          publicContactLinksHtml += `
+            <a href="${freelancer.personalPage}" target="_blank" class="btn-personal hover:opacity-80 text-white font-semibold flex items-center gap-2 shadow-sm ${freelancer.blacklisted ? 'disabled-link' : ''}">
+              <i class="fas fa-globe"></i> Web Personal
+            </a>
+          `;
+      }
+      if (freelancer.github) {
+          publicContactLinksHtml += `
+            <a href="${freelancer.github}" target="_blank" class="btn-github hover:opacity-80 text-white font-semibold flex items-center gap-2 shadow-sm ${freelancer.blacklisted ? 'disabled-link' : ''}">
+              <i class="fab fa-github"></i> GitHub
+            </a>
+          `;
+      }
+      if (freelancer.linkedin) {
+          publicContactLinksHtml += `
+            <a href="${freelancer.linkedin}" target="_blank" class="btn-linkedin hover:opacity-80 text-white font-semibold flex items-center gap-2 shadow-sm ${freelancer.blacklisted ? 'disabled-link' : ''}">
+              <i class="fab fa-linkedin"></i> LinkedIn
+            </a>
+          `;
+      }
+      if (freelancer.twitter) {
+          publicContactLinksHtml += `
+            <a href="${freelancer.twitter}" target="_blank" class="btn-twitter hover:opacity-80 text-white font-semibold flex items-center gap-2 shadow-sm ${freelancer.blacklisted ? 'disabled-link' : ''}">
+              <i class="fab fa-twitter"></i> Twitter
+            </a>
+          `;
+      }
+      if (freelancer.x) {
+          publicContactLinksHtml += `
+            <a href="${freelancer.x}" target="_blank" class="btn-x hover:opacity-80 text-white font-semibold flex items-center gap-2 shadow-sm ${freelancer.blacklisted ? 'disabled-link' : ''}">
+              <i class="fab fa-x-twitter"></i> X
+            </a>
+          `;
+      }
+      if (freelancer.facebook) {
+          publicContactLinksHtml += `
+            <a href="${freelancer.facebook}" target="_blank" class="btn-facebook hover:opacity-80 text-white font-semibold flex items-center gap-2 shadow-sm ${freelancer.blacklisted ? 'disabled-link' : ''}">
+              <i class="fab fa-facebook"></i> Facebook
+            </a>
+          `;
+      }
+      if (freelancer.facebookPage) {
+          publicContactLinksHtml += `
+            <a href="${freelancer.facebookPage}" target="_blank" class="btn-facebook hover:opacity-80 text-white font-semibold flex items-center gap-2 shadow-sm ${freelancer.blacklisted ? 'disabled-link' : ''}">
+              <i class="fab fa-facebook-square"></i> Página FB
+            </a>
+          `;
+      }
+      if (freelancer.instagram) {
+          publicContactLinksHtml += `
+            <a href="${freelancer.instagram}" target="_blank" class="btn-instagram hover:opacity-80 text-white font-semibold flex items-center gap-2 shadow-sm ${freelancer.blacklisted ? 'disabled-link' : ''}">
+              <i class="fab fa-instagram"></i> Instagram
+            </a>
+          `;
+      }
+
+      // Mensaje si no hay enlaces públicos
+      if (publicContactLinksHtml === '') {
+          publicContactLinksHtml = `<p class="not-available-contact">No hay enlaces públicos disponibles.</p>`;
+      }
+
+
+      // Construir enlaces de contacto directo (email, teléfono)
+      let directContactHtml = '';
+      if (showContactInfo) {
+          if (freelancer.email) {
+              directContactHtml += `
+                <a href="mailto:${freelancer.email}" class="btn-email hover:opacity-80 text-white font-semibold flex items-center gap-2 shadow-sm">
+                  <i class="fas fa-envelope"></i> ${freelancer.email}
+                </a>
+              `;
+          }
+          if (freelancer.phone) {
+              directContactHtml += `
+                <a href="tel:${freelancer.phone}" class="btn-phone hover:opacity-80 text-white font-semibold flex items-center gap-2 shadow-sm">
+                  <i class="fas fa-phone"></i> ${freelancer.phone}
+                </a>
+              `;
+          }
+          if (directContactHtml === '') {
+              directContactHtml = `<p class="not-available-contact">Email o teléfono no disponibles (requiere permiso del freelancer).</p>`;
+          }
+      } else {
+          directContactHtml = `<p class="not-available-contact">Contacto directo no disponible para este perfil.</p>`;
+      }
+
+
+      modalBodyContent.innerHTML = `
+        <!-- Columna izquierda: Información principal -->
+        <div class="lg:col-span-2 text-center lg:border-r lg:pr-6 flex flex-col items-center">
+          <img src="${freelancer.foto || 'https://placehold.co/150x150/A0AEC0/FFFFFF?text=No+Foto'}" 
+               alt="${freelancer.nombre}" 
+               class="w-36 h-36 rounded-full object-cover mb-4 border-4 border-blue-500 shadow-md"
+               onerror="this.onerror=null;this.src='https://placehold.co/150x150/A0AEC0/FFFFFF?text=No+Foto';">
+          
+          ${freelancer.blacklisted ? 
+            '<div class="bg-red-100 text-red-800 px-3 py-1 rounded-md inline-flex items-center gap-1 text-sm font-medium mb-2"><i class="fas fa-ban"></i> En lista negra</div>' : 
+            '<span class="bg-green-100 text-green-800 px-3 py-1 rounded-md inline-block text-sm font-medium mb-2">Verificado</span>'
+          }
+          <p class="mt-2 text-gray-600 text-sm flex items-center justify-center gap-1">
+            <i class="fas fa-map-marker-alt text-blue-500"></i> ${freelancer.pais || 'Desconocido'}
+          </p>
+          
         </div>
         
-        <!-- Columna derecha -->
-        <div class="col-md-8">
-          <div class="freelancer-details">
-            <!-- Información básica -->
-            <div class="section mb-4">
-              <h6><i class="fas fa-info-circle"></i> Información</h6>
-              <div class="row">
-                <div class="col-6">
-                  <small class="text-muted">Experiencia</small>
-                  <p>${freelancer.experiencia || 'No especificado'}</p>
-                </div>
-                <div class="col-6">
-                  <small class="text-muted">Área</small>
-                  <p>${freelancer.area || 'General'}</p>
-                </div>
-                <div class="col-6">
-                  <small class="text-muted">Tarifa</small>
-                  <p>${freelancer.tarifa || 'A consultar'}</p>
-                </div>
-                <div class="col-6">
-                  <small class="text-muted">Disponibilidad</small>
-                  <p>${freelancer.disponibilidad || 'A consultar'}</p>
-                </div>
-              </div>
-            </div>
-            
-            <!-- Habilidades -->
-            <div class="section mb-4">
-              <h6><i class="fas fa-cogs"></i> Tecnologías y Habilidades</h6>
-              <div class="skills-container">
-                ${skillsBadges}
-              </div>
-            </div>
-            
-            <!-- Enlaces -->
-            ${(freelancer.cvUrl || freelancer.portafolio) ? `
-              <div class="section mb-4">
-                <h6><i class="fas fa-link"></i> Enlaces</h6>
-                <div class="d-flex gap-2">
-                  ${freelancer.cvUrl && freelancer.cvUrl !== '#' ? `
-                    <a href="${freelancer.cvUrl}" target="_blank" class="btn btn-primary btn-sm">
-                      <i class="fas fa-file-pdf"></i> CV/Resumé
-                    </a>
-                  ` : ''}
-                  ${freelancer.portafolio ? `
-                    <a href="${freelancer.portafolio}" target="_blank" class="btn btn-outline-primary btn-sm">
-                      <i class="fas fa-briefcase"></i> Portafolio
-                    </a>
-                  ` : ''}
-                </div>
-              </div>
-            ` : ''}
-            
-            <!-- Comentarios -->
-            <div class="section">
-              <h6><i class="fas fa-comments"></i> Comentarios</h6>
-              <textarea id="freelancer-comments-${freelancer.id}" 
-                        class="form-control" 
-                        rows="4" 
-                        placeholder="Agregar comentarios o notas...">${freelancer.comentarios || ''}</textarea>
-              <button class="btn btn-primary btn-sm mt-2" onclick="saveFreelancerComments('${freelancer.id}')">
-                <i class="fas fa-save"></i> Guardar
-              </button>
+        <!-- Columna derecha: Detalles, enlaces y comentarios/reportes -->
+        <div class="lg:col-span-3 lg:pl-6">
+          <div class="mb-6">
+            <h4 class="text-xl font-bold text-gray-800 mb-2">${freelancer.titulo || 'Sin Título'}</h4>
+            <p class="text-gray-600 text-sm">${freelancer.area || 'Área no especificada'}</p>
+          </div>
+          
+          <div class="mb-6">
+            <h6 class="text-lg font-semibold text-gray-700 mb-2">Habilidades principales:</h6>
+            <div class="flex flex-wrap gap-2 mb-3">
+              ${freelancer.skills.length > 0 ? 
+                freelancer.skills.map(skill => `<span class="bg-blue-500 text-white text-sm font-medium px-3 py-1 rounded-full">${skill}</span>`).join('') : 
+                '<span class="text-sm text-gray-400">Sin habilidades registradas.</span>'
+              }
             </div>
           </div>
+          
+          <hr class="border-t border-gray-200 my-6">
+          
+          <div class="mb-6">
+            <h6 class="text-lg font-semibold text-gray-700 mb-2">Enlaces:</h6>
+            <div class="contact-link-group">
+              ${publicContactLinksHtml}
+            </div>
+          </div>
+
+          <div class="mb-6">
+            <h6 class="text-lg font-semibold text-gray-700 mb-2">Contacto Directo:</h6>
+            <div class="contact-link-group">
+              ${directContactHtml}
+            </div>
+          </div>
+          
+          <hr class="border-t border-gray-200 my-6">
+          
+          <!-- Sección de comentarios o reportes -->
+          ${freelancer.blacklisted ? `
+            <div class="mt-6 bg-red-50 p-4 rounded-lg border border-red-200 shadow-inner">
+              <h6 class="text-lg font-semibold text-red-700 mb-3"><i class="fas fa-exclamation-triangle mr-2"></i> Reportes:</h6>
+              <div class="flex flex-wrap gap-2">
+                ${freelancer.reports && freelancer.reports.length > 0 ? 
+                  freelancer.reports.map(report => `<span class="bg-red-200 text-red-800 text-sm font-medium px-3 py-1 rounded-full">${report}</span>`).join('') : 
+                  '<span class="text-sm text-gray-500">No hay reportes detallados disponibles públicamente.</span>'
+                }
+              </div>
+              <p class="text-sm text-red-600 mt-3">Este perfil ha sido marcado. El contacto directo está deshabilitado.</p>
+            </div>
+          ` : `
+            <div class="mt-6 bg-gray-50 p-4 rounded-lg shadow-inner">
+              <h6 class="text-lg font-semibold text-gray-700 mb-3">Comentarios de Clientes:</h6>
+              ${freelancer.comentarios && freelancer.comentarios.trim() !== '' ? 
+                `<p class="text-gray-700 text-sm leading-relaxed">${freelancer.comentarios}</p>` : 
+                '<p class="text-gray-500 text-sm italic">Aún no hay comentarios de clientes para este freelancer.</p>'
+              }
+            </div>
+          `}
         </div>
-      </div>
-    </div>
-  `;
-}
+      `;
 
-// ===================================
-// FUNCIONES DE UTILIDAD
-// ===================================
-function showLoading(show) {
-  const loading = document.getElementById('loading');
-  if (loading) {
-    loading.style.display = show ? 'block' : 'none';
-  }
-}
-
-function showContent() {
-  const sections = ['filters-section', 'freelancers-container', 'pagination-container'];
-  sections.forEach(id => {
-    const element = document.getElementById(id);
-    if (element) {
-      element.style.display = 'block';
+      modalElement.classList.add('show'); // Muestra el modal
     }
-  });
-}
 
-function showError(message) {
-  const loading = document.getElementById('loading');
-  if (loading) {
-    loading.innerHTML = `
-      <div class="alert alert-danger text-center">
-        <i class="fas fa-exclamation-triangle fa-2x mb-3"></i>
-        <h5>Error</h5>
-        <p>${message}</p>
-        <button class="btn btn-primary" onclick="location.reload()">
-          <i class="fas fa-redo"></i> Reintentar
-        </button>
-      </div>
-    `;
-  }
-}
-
-function animateNumber(element, targetValue) {
-  const startValue = 0;
-  const duration = 1000;
-  const startTime = performance.now();
-  
-  function updateNumber(currentTime) {
-    const elapsed = currentTime - startTime;
-    const progress = Math.min(elapsed / duration, 1);
-    const currentValue = Math.floor(startValue + (targetValue - startValue) * progress);
-    
-    element.textContent = currentValue;
-    
-    if (progress < 1) {
-      requestAnimationFrame(updateNumber);
+    /**
+     * Cierra el modal de detalles del freelancer.
+     */
+    function closeModal() {
+      document.getElementById('freelancer-modal').classList.remove('show');
     }
-  }
-  
-  requestAnimationFrame(updateNumber);
-}
 
-// ===================================
-// FUNCIONES DE BACKEND
-// ===================================
-function saveFreelancerComments(freelancerId) {
-  const textarea = document.getElementById(`freelancer-comments-${freelancerId}`);
-  if (!textarea) return;
-  
-  const comments = textarea.value.trim();
-  
-  google.script.run
-    .withSuccessHandler(() => {
-      showToast('Comentarios guardados correctamente', 'success');
-      // Actualizar el freelancer en memoria
-      const freelancer = allFreelancers.find(f => f.id === freelancerId);
-      if (freelancer) {
-        freelancer.comentarios = comments;
+    // Funciones saveComment y toggleBlacklist eliminadas de la vista pública.
+    // Serán gestionadas por la aplicación de administración.
+
+    /**
+     * Función principal que se ejecuta al cargar la página.
+     * Carga los freelancers desde Apps Script.
+     */
+    document.addEventListener('DOMContentLoaded', () => {
+      const loadingElement = document.getElementById('loading');
+      const freelancersContainer = document.getElementById('freelancers-container');
+      const errorMessageDiv = document.getElementById('error-message');
+      const errorTextSpan = document.getElementById('error-text');
+
+      loadingElement.classList.remove('hidden');
+      freelancersContainer.classList.remove('loaded'); // Asegura que la opacidad inicial sea 0
+
+      // **VERIFICACIÓN CRÍTICA: Asegura que google.script.run esté definido**
+      if (typeof google === 'undefined' || typeof google.script === 'undefined' || typeof google.script.run === 'undefined') {
+        loadingElement.classList.add('hidden');
+        errorMessageDiv.classList.remove('hidden');
+        errorTextSpan.textContent = 'No se pudo conectar con Google Apps Script. Asegúrate de que la aplicación esté desplegada correctamente como una aplicación web y se acceda a ella a través de la URL de despliegue.';
+        console.error("Error: google.script.run no está definido. La aplicación debe ser desplegada como una aplicación web.");
+        return; // Detiene la ejecución si google.script.run no está disponible
       }
-    })
-    .withFailureHandler(error => {
-      console.error('Error guardando comentarios:', error);
-      showToast('Error al guardar comentarios', 'error');
-    })
-    .saveFreelancerComment(freelancerId, comments);
-}
+      
+      google.script.run
+        .withSuccessHandler(data => {
+          loadingElement.classList.add('hidden');
+          freelancersContainer.classList.add('loaded'); // Aplica la opacidad para mostrar
+          
+          allFreelancers = data;
+          initFilters(data);
+          // Al cargar, siempre empezamos en la página 1.
+          currentPage = 1; 
+          filterFreelancers(); // Inicia el filtrado y renderizado inicial
+          
+          // Configurar eventos de los filtros
+          document.getElementById('toggleBlacklistBtn')?.addEventListener('click', toggleBlacklistFilter);
+          
+          const searchInput = document.getElementById('search-input');
+          // Al escribir en el input de búsqueda, resetear a la página 1
+          searchInput.addEventListener('input', () => {
+            clearTimeout(timeout);
+            timeout = setTimeout(() => {
+              currentPage = 1; // Resetear a la página 1 al buscar
+              filterFreelancers();
+            }, 300); // Debounce para la búsqueda
+          });
 
-function reportFreelancer(freelancerId) {
-  const modal = bootstrap.Modal.getInstance(document.getElementById('freelancer-modal'));
-  if (modal) modal.hide();
-  
-  // Configurar modal de reporte
-  const reportModal = document.getElementById('reportModal');
-  const reportModalInstance = new bootstrap.Modal(reportModal);
-  
-  // Guardar ID del freelancer para el reporte
-  reportModal.dataset.freelancerId = freelancerId;
-  
-  reportModalInstance.show();
-}
+          // Al cambiar el filtro de país, resetear a la página 1
+          document.getElementById('country-filter').addEventListener('change', () => {
+            currentPage = 1;
+            filterFreelancers();
+          });
 
-function showToast(message, type = 'info') {
-  // Crear toast dinámicamente
-  const toastContainer = document.getElementById('toast-container') || createToastContainer();
-  
-  const toastElement = document.createElement('div');
-  toastElement.className = `toast align-items-center text-white bg-${type === 'error' ? 'danger' : type === 'success' ? 'success' : 'primary'} border-0`;
-  toastElement.setAttribute('role', 'alert');
-  
-  toastElement.innerHTML = `
-    <div class="d-flex">
-      <div class="toast-body">
-        <i class="fas fa-${type === 'error' ? 'exclamation-triangle' : type === 'success' ? 'check' : 'info-circle'} me-2"></i>
-        ${message}
-      </div>
-      <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
-    </div>
-  `;
-  
-  toastContainer.appendChild(toastElement);
-  
-  const toast = new bootstrap.Toast(toastElement, { delay: 4000 });
-  toast.show();
-  
-  // Remover el toast después de que se oculte
-  toastElement.addEventListener('hidden.bs.toast', () => {
-    toastElement.remove();
-  });
-}
+          // Al cambiar el filtro de habilidades, resetear a la página 1
+          document.getElementById('skills-filter').addEventListener('change', () => {
+            currentPage = 1;
+            filterFreelancers();
+          });
+          
+          // Al hacer clic en el botón de filtrar, resetear a la página 1
+          document.getElementById('filter-btn').addEventListener('click', () => {
+            currentPage = 1;
+            filterFreelancers();
+          });
 
-function createToastContainer() {
-  const container = document.createElement('div');
-  container.id = 'toast-container';
-  container.className = 'toast-container position-fixed bottom-0 end-0 p-3';
-  container.style.zIndex = '1055';
-  document.body.appendChild(container);
-  return container;
-}
-
-function showStatsModal() {
-  const stats = calculateStats();
-  
-  const modalHtml = `
-    <div class="modal fade" id="statsModal" tabindex="-1">
-      <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h5 class="modal-title">
-              <i class="fas fa-chart-bar"></i> Estadísticas del Directorio
-            </h5>
-            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-          </div>
-          <div class="modal-body">
-            <div class="row text-center">
-              <div class="col-md-3 mb-3">
-                <div class="stat-card">
-                  <i class="fas fa-users fa-2x text-primary mb-2"></i>
-                  <h3>${stats.total}</h3>
-                  <p class="text-muted">Total Freelancers</p>
-                </div>
-              </div>
-              <div class="col-md-3 mb-3">
-                <div class="stat-card">
-                  <i class="fas fa-crown fa-2x text-warning mb-2"></i>
-                  <h3>${stats.premium}</h3>
-                  <p class="text-muted">Premium</p>
-                </div>
-              </div>
-              <div class="col-md-3 mb-3">
-                <div class="stat-card">
-                  <i class="fas fa-globe fa-2x text-info mb-2"></i>
-                  <h3>${stats.countries}</h3>
-                  <p class="text-muted">Países</p>
-                </div>
-              </div>
-              <div class="col-md-3 mb-3">
-                <div class="
+          // Evento para el botón "Limpiar Filtros"
+          document.getElementById('clear-filters-btn').addEventListener('click', clearFilters);
+        })
+        .withFailureHandler(error => {
+          loadingElement.classList.add('hidden');
+          errorMessageDiv.classList.remove('hidden');
+          errorTextSpan.textContent = `Error al cargar los datos: ${error.message}. Por favor, recarga la página.`;
+          console.error("Error cargando datos:", error);
+        })
+        .getFreelancers();
+    });
+  </script>
