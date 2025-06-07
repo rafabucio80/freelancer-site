@@ -139,4 +139,101 @@
         font-size: 0.875rem; /* text-sm */
         padding: 0.5rem 0;
     }
-  </style>
+    .button-container {
+    margin-top: 15px; /* Espacio entre la imagen y los botones */
+    margin-bottom: 15px; /* Espacio entre los botones y el nombre */
+}
+.button-container button {
+    padding: 10px 20px;
+    border: none;
+    border-radius: 5px;
+    color: white;
+    font-size: 1em;
+    cursor: pointer;
+    margin: 0 5px; /* Espacio entre los botones */
+}
+.button-comentar {
+    background-color: #007bff; /* Azul */
+}
+.button-comentar:hover {
+    background-color: #0056b3;
+}
+.button-reportar {
+    background-color: #dc3545; /* Rojo */
+}
+.button-reportar:hover {
+    background-color: #c82333;
+}
+/* Agrega esto en style.css */
+.button-container {
+    display: flex;
+    gap: 10px;
+    margin: 15px 0;
+    justify-content: center;
+}
+
+.button-container button {
+    padding: 10px 15px;
+    border: none;
+    border-radius: 6px;
+    color: white;
+    font-size: 0.9em;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    transition: all 0.3s ease;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+}
+
+.button-comentar {
+    background-color: #3b82f6; /* Azul */
+}
+
+.button-comentar:hover {
+    background-color: #2563eb;
+}
+
+.button-reportar {
+    background-color: #ef4444; /* Rojo */
+}
+
+.button-reportar:hover {
+    background-color: #dc2626;
+}
+/* Estilos para el modal de compartir */
+.fixed.inset-0 {
+  z-index: 1000;
+}
+
+.share-btn {
+  transition: all 0.2s ease;
+}
+
+.share-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+/* Icono de compartir en tarjeta */
+.freelancer-card .fa-share-alt {
+  transition: all 0.2s ease;
+}
+
+.freelancer-card:hover .fa-share-alt {
+  transform: scale(1.1);
+}
+
+/* Modal de compartir */
+.fixed.inset-0 {
+  z-index: 1000;
+  backdrop-filter: blur(2px);
+}
+
+/* Botones redes sociales */
+.fab {
+  width: 1em;
+  height: 1em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+</style>
