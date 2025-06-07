@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><?!= freelancer.nombre ?> | Perfil Freelancer</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    .skill-tag {
+      transition: all 0.3s ease;
+    }
+    .skill-tag:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+  </style>
+</head>
+<body class="bg-gray-50">
+  <div class="container mx-auto px-4 py-8 max-w-4xl">
+    <!-- Tarjeta del perfil -->
+    <div class="bg-white rounded-xl shadow-md overflow-hidden">
+      <!-- Header con foto -->
+      <div class="md:flex">
+        <div class="md:flex-shrink-0 md:w-1/3">
+          <img class="h-64 w-full object-cover md:h-full" src="<?!= freelancer.foto ?>" 
+               alt="Foto de <?!= freelancer.nombre ?>" onerror="this.src='https://placehold.co/600x400?text=Sin+Foto'">
+        </div>
+        <div class="p-8 md:w-2/3">
+          <div class="flex justify-between items-start">
+            <div>
+              <h1 class="text-2xl font-bold text-gray-800"><?!= freelancer.nombre ?></h1>
+              <p class="mt-1 text-gray-600 flex items-center">
+                <i class="fas fa-map-marker-alt mr-2 text-blue-500"></i>
+                <?!= freelancer.pais || 'Ubicación no especificada' ?>
+              </p>
+            </div>
+            <span class="bg-yellow-400 text-yellow-900 px-3 py-1 rounded-full text-xs font-semibold">
+              <i class="fas fa-crown mr-1"></i> Premium
+            </span>
+          </div>
+          
+          <div class="mt-4">
+            <h2 class="text-xl font-semibold text-gray-700"><?!= freelancer.titulo || 'Freelancer profesional' ?></h2>
+            <p class="mt-2 text-gray-600"><?!= freelancer.descripcion || 'Este profesional no ha añadido una descripción.' ?></p>
+          </div>
+          
+          <!-- Habilidades -->
+          <div class="mt-6">
+            <h3 class="text-lg font-medium text-gray-700">Habilidades principales</h3>
+            <div class="flex flex-wrap gap-2 mt-2">
+              <? for (let i = 0; i < freelancer.skills.length; i++) { ?>
+                <span class="skill-tag bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm font-medium">
+                  <?!= freelancer.skills[i] ?>
+                </span>
+              <? } ?>
+              <? if (freelancer.skills.length === 0) { ?>
+                <p class="text-gray-400">No se han especificado habilidades</p>
+              <? } ?>
+            </div>
+          </div>
+          
+          <!-- Portafolio -->
+          <? if (freelancer.portafolio) { ?>
+          <div class="mt-6">
+            <a href="<?!= freelancer.portafolio ?>" target="_blank" 
+               class="inline-flex items-center px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition">
+              <i class="fas fa-briefcase mr-2"></i> Ver portafolio
+            </a>
+          </div>
+          <? } ?>
+        </div>
+      </div>
+      
+      <!-- Sección de contacto (solo visible para usuarios registrados) -->
+      <div id="contact-section" class="hidden px-8 pb-8">
+        <hr class="my-6 border-gray-200">
+        <h3 class="text-lg font-medium text-gray-700">Contactar a <?!= freelancer.nombre ?></h3>
+        <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+          <button id="request-contact-btn" class="bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg transition">
+            <i class="fas fa-envelope mr-2"></i> Solicitar contacto
+          </button>
+          <div id="contact-info" class="hidden">
+            <!-- Info de contacto se mostrará aquí -->
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Mensaje para usuarios no registrados -->
+    <div id="register-message" class="mt-6 bg-blue-50 border border-blue-200 rounded-lg p-4 text-center">
+      <h3 class="text-lg font-medium text-blue-800">¿Quieres contactar a <?!= freelancer.nombre ?>?</h3>
+      <p class="mt-2 text-blue-600">Regístrate en nuestra plataforma para acceder a la información de contacto.</p>
+      <a href="<?!= ScriptApp.getService().getUrl() ?>" class="mt-4 inline-block bg-blue-600 hover:bg-blue-700 text-white py-2 px-6 rounded-lg transition">
+        Registrarme ahora
+      </a>
+    </div>
+  </div>
+
+  <script>
+    // Verificar si el usuario está logueado (implementación básica)
+    function checkAuth() {
+      // Aquí implementarías la lógica real de verificación
+      return false; // Por defecto asumimos no autenticado
+    }
+    
+    // Mostrar sección de contacto si está autenticado
+    if (checkAuth()) {
+      document.getElementById('contact-section').classList.remove('hidden');
+      document.getElementById('register-message').classList.add('hidden');
+      
+      document.getElementById('request-contact-btn').addEventListener('click', function() {
+        google.script.run
+          .withSuccessHandler(function(contactInfo) {
+            document.getElementById('contact-info').innerHTML = `
+              <div class="space-y-2">
+                ${contactInfo.email ? `
+                  <div class="flex items-center">
+                    <i class="fas fa-envelope mr-2 text-gray-500"></i>
+                    <a href="mailto:${contactInfo.email}" class="text-blue-600 hover:underline">${contactInfo.email}</a>
+                  </div>
+                ` : ''}
+                ${contactInfo.phone ? `
+                  <div class="flex items-center">
+                    <i class="fas fa-phone mr-2 text-gray-500"></i>
+                    <a href="tel:${contactInfo.phone}" class="text-blue-600 hover:underline">${contactInfo.phone}</a>
+                  </div>
+                ` : ''}
+              </div>
+            `;
+            document.getElementById('contact-info').classList.remove('hidden');
+          })
+          .getFreelancerContactInfo('<?!= freelancer.id ?>');
+      });
+    }
+  </script>
+</body>
+</html>
