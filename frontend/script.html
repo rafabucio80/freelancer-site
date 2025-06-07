@@ -88,7 +88,8 @@
      * Luego renderiza los resultados y la paginación.
      */
     function filterFreelancers() {
-      const searchTerm = document.getElementById('search-input').value.toLowerCase();
+      const searchInput = document.getElementById('search-input');
+      const searchTerm = sanitizeInput(searchInput.value.toLowerCase());
       const country = document.getElementById('country-filter').value;
       const skill = document.getElementById('skills-filter').value;
       
@@ -204,35 +205,51 @@
         }
 
         const freelancerCardHTML = `
-          <div class="freelancer-card bg-white rounded-xl shadow-md hover:shadow-lg transition-transform duration-300 transform hover:-translate-y-2 p-6 text-center relative ${freelancer.blacklisted ? 'border-2 border-red-500 shadow-red-200' : ''}">
-            ${freelancer.blacklisted ? '<i class="fas fa-ban text-red-600 text-2xl absolute top-3 left-3" title="En lista negra"></i>' : ''}
-            ${freelancer.premium && !freelancer.blacklisted ? '<span class="absolute top-3 right-3 bg-yellow-400 text-yellow-900 text-xs font-semibold px-3 py-1 rounded-full shadow-sm">Destacado</span>' : ''}
-            
-            <img src="${freelancer.foto || 'https://placehold.co/120x120/A0AEC0/FFFFFF?text=No+Foto'}" 
-                 alt="${freelancer.nombre}" 
-                 class="w-28 h-28 rounded-full object-cover mb-4 mx-auto border-4 border-blue-500 shadow-md"
-                 onerror="this.onerror=null;this.src='https://placehold.co/120x120/A0AEC0/FFFFFF?text=No+Foto';">
-            
-            <h3 class="text-xl font-bold text-gray-800 mb-1">${freelancer.nombre}</h3>
-            <p class="text-sm text-gray-600 mb-2">${freelancer.titulo || 'Sin Título'}</p>
-            <p class="text-xs text-gray-500 mb-3 flex items-center justify-center gap-1">
-              ${countryFlags[freelancer.pais] || '🌐'} ${freelancer.pais || 'Desconocido'}
-            </p>
-            
-            <div class="flex flex-wrap justify-center gap-2 mb-4">
-              ${freelancer.skills.length > 0 ? 
-                freelancer.skills.map(skill => `<span class="bg-blue-100 text-blue-800 text-xs font-medium px-2.5 py-0.5 rounded-full">${skill}</span>`).join('') : 
-                '<span class="text-xs text-gray-400">Sin habilidades</span>'
-              }
-            </div>
-
-            <button class="view-more-btn mt-auto w-full font-semibold py-2 px-4 rounded-lg transition duration-300 shadow-md ${buttonClasses}" 
-                    onclick="${buttonDisabled ? 'return false;' : `openModal(${JSON.stringify(freelancer).replace(/"/g, '&quot;')})`}"
-                    ${buttonDisabled ? 'disabled' : ''}>
-              ${buttonText}
-            </button>
-          </div>
-        `;
+  <div class="freelancer-card bg-white rounded-xl shadow-md hover:shadow-lg transition-transform duration-300 transform hover:-translate-y-2 p-6 text-center relative ${freelancer.blacklisted ? 'border-2 border-red-500 shadow-red-200' : ''}">
+    <!-- Icono de compartir (solo premium y no blacklisted) -->
+    ${freelancer.premium && !freelancer.blacklisted ? `
+      <button onclick="onShareButtonClick('${freelancer.id}')" 
+              class="absolute top-3 left-3 bg-white/80 hover:bg-white text-gray-800 p-2 rounded-full shadow-md transition-all hover:scale-110 z-10"
+              title="Compartir perfil">
+        <i class="fas fa-share-alt text-sm"></i>
+      </button>
+    ` : ''}
+    
+    <!-- Icono de lista negra (si aplica) -->
+    ${freelancer.blacklisted ? '<i class="fas fa-ban text-red-600 text-2xl absolute top-3 left-3" title="En lista negra"></i>' : ''}
+    
+    <!-- Badge destacado (solo premium y no blacklisted) -->
+    ${freelancer.premium && !freelancer.blacklisted ? '<span class="absolute top-3 right-3 bg-yellow-400 text-yellow-900 text-xs font-semibold px-3 py-1 rounded-full shadow-sm">Destacado</span>' : ''}
+    
+    <!-- Foto del freelancer -->
+    <img src="${freelancer.foto || 'https://placehold.co/120x120/A0AEC0/FFFFFF?text=No+Foto'}" 
+         alt="${freelancer.nombre}" 
+         class="w-28 h-28 rounded-full object-cover mb-4 mx-auto border-4 border-blue-500 shadow-md"
+         onerror="this.onerror=null;this.src='https://placehold.co/120x120/A0AEC0/FFFFFF?text=No+Foto';">
+    
+    <!-- Información básica -->
+    <h3 class="text-xl font-bold text-gray-800 mb-1">${freelancer.nombre}</h3>
+    <p class="text-sm text-gray-600 mb-2">${freelancer.titulo || 'Sin Título'}</p>
+    <p class="text-xs text-gray-500 mb-3 flex items-center justify-center gap-1">
+      ${countryFlags[freelancer.pais] || '🌐'} ${freelancer.pais || 'Desconocido'}
+    </p>
+    
+    <!-- Habilidades -->
+    <div class="flex flex-wrap justify-center gap-2 mb-4">
+      ${freelancer.skills.length > 0 ? 
+        freelancer.skills.map(skill => `<span class="bg-blue-100 text-blue-800 text-xs font-medium px-2.5 py-0.5 rounded-full">${skill}</span>`).join('') : 
+        '<span class="text-xs text-gray-400">Sin habilidades</span>'
+      }
+    </div>
+    
+    <!-- Botón Ver más -->
+    <button class="view-more-btn mt-auto w-full font-semibold py-2 px-4 rounded-lg transition duration-300 shadow-md ${buttonClasses}" 
+            onclick="${buttonDisabled ? 'return false;' : `openModal(${JSON.stringify(freelancer).replace(/"/g, '&quot;')})`}"
+            ${buttonDisabled ? 'disabled' : ''}>
+      ${buttonText}
+    </button>
+  </div>
+`;
         container.innerHTML += freelancerCardHTML;
       });
     }
@@ -352,6 +369,32 @@
         window.scrollTo({ top: 0, behavior: 'smooth' });
       }
     }
+
+    /**
+ * Maneja el clic en el botón "Compartir perfil" de la tarjeta de freelancer
+ * @param {string} freelancerId - ID del freelancer a compartir
+ */
+function onShareButtonClick(freelancerId) {
+  // Mostrar loader mientras se procesa
+  const btn = event.target.closest('button');
+  const originalHtml = btn.innerHTML;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generando...';
+  
+  google.script.run
+    .withSuccessHandler(result => {
+      btn.innerHTML = originalHtml;
+      if (result.success) {
+        showShareModal(result.url); // Mostrar modal con la URL
+      } else {
+        showAlert('error', result.message); // Mostrar error
+      }
+    })
+    .withFailureHandler(error => {
+      btn.innerHTML = originalHtml;
+      showAlert('error', 'Error al generar enlace: ' + error.message);
+    })
+    .generatePublicUrl(freelancerId); // Llama a la función del servidor
+}
 
     /**
      * Abre el modal de detalles del freelancer.
@@ -486,6 +529,22 @@
           <p class="mt-2 text-gray-600 text-sm flex items-center justify-center gap-1">
             <i class="fas fa-map-marker-alt text-blue-500"></i> ${freelancer.pais || 'Desconocido'}
           </p>
+          ${freelancer.blacklisted ? `
+                <div class="button-container">
+                    <button class="button-reportar" onclick="handleReport('${freelancer.id}')">
+                        <i class="fas fa-flag mr-2"></i> Reportar
+                    </button>
+                </div>
+            ` : `
+                <div class="button-container">
+                    <button class="button-comentar" onclick="handleComment('${freelancer.id}')">
+                        <i class="fas fa-comment mr-2"></i> Comentar
+                    </button>
+                    <button class="button-reportar" onclick="handleReport('${freelancer.id}')">
+                        <i class="fas fa-flag mr-2"></i> Reportar
+                    </button>
+                </div>
+            `}
           
         </div>
         
@@ -552,16 +611,20 @@
     }
 
     /**
-     * Cierra el modal de detalles del freelancer.
+     * Cierra el modal de detalles del freelancer o el modal de compartir
      */
-    function closeModal() {
-      document.getElementById('freelancer-modal').classList.remove('show');
+    function closeModal(modalId = 'freelancer-modal') {
+      const modal = document.getElementById(modalId);
+      if (modal) {
+        modal.classList.remove('show');
+      } else {
+        // Para modales dinámicos (como el de compartir)
+        const dynamicModal = document.querySelector('.fixed.inset-0');
+        if (dynamicModal) dynamicModal.remove();
+      }
     }
 
-    // Funciones saveComment y toggleBlacklist eliminadas de la vista pública.
-    // Serán gestionadas por la aplicación de administración.
-
-    /**
+     /**
      * Función principal que se ejecuta al cargar la página.
      * Carga los freelancers desde Apps Script.
      */
@@ -600,12 +663,14 @@
           const searchInput = document.getElementById('search-input');
           // Al escribir en el input de búsqueda, resetear a la página 1
           searchInput.addEventListener('input', () => {
-            clearTimeout(timeout);
-            timeout = setTimeout(() => {
-              currentPage = 1; // Resetear a la página 1 al buscar
-              filterFreelancers();
-            }, 300); // Debounce para la búsqueda
-          });
+          clearTimeout(timeout);
+          timeout = setTimeout(() => {
+            // Sanitizamos el valor en cada búsqueda
+            searchInput.value = sanitizeInput(searchInput.value);
+            currentPage = 1;
+            filterFreelancers();
+          }, 300);
+        });
 
           // Al cambiar el filtro de país, resetear a la página 1
           document.getElementById('country-filter').addEventListener('change', () => {
@@ -636,4 +701,179 @@
         })
         .getFreelancers();
     });
+  function handleComment(freelancerId) {
+  const rawComment = prompt("Ingrese su comentario sobre este freelancer:");
+  if (rawComment) {
+    const sanitizedComment = sanitizeInput(rawComment);
+    
+    google.script.run
+      .withSuccessHandler(() => {
+        alert("¡Comentario enviado con éxito!");
+        closeModal();
+      })
+      .saveFreelancerComment(freelancerId, sanitizedComment);
+  }
+}
+
+function handleReport(freelancerId) {
+  const rawReason = prompt("¿Por qué deseas reportar este perfil?\nEjemplos: 'Contenido inapropiado', 'Información falsa'");
+  
+  if (rawReason) {
+    const sanitizedReason = sanitizeInput(rawReason);
+    
+    google.script.run
+      .withSuccessHandler(response => {
+        if (response === "SI") {
+          alert("✔ Perfil reportado. Gracias por tu feedback.");
+        }
+        closeModal();
+      })
+      .toggleBlacklist(freelancerId);
+  }
+}
+/**
+ * Sanitiza input para prevenir XSS e inyección
+ * @param {string} input - Cadena a sanitizar
+ * @returns {string} Cadena segura
+ */
+function sanitizeInput(input) {
+  if (!input) return '';
+  
+  // Permite letras, números, espacios y acentos básicos
+  const safePattern = /[^a-zA-Z0-9 áéíóúÁÉÍÓÚñÑüÜ@.,\-_]/g;
+  let sanitized = input.replace(safePattern, '');
+  
+  // Limita longitud y elimina espacios extras
+  return sanitized.substring(0, 100).trim();
+}
+
+/**
+ * Muestra modal con opciones para compartir
+ */
+/**
+ * Muestra modal con opciones para compartir
+ */
+function showShareModal(url) {
+  // Generar URL para compartir en redes sociales
+  closeAllModals();
+  const encodedUrl = encodeURIComponent(url);
+  const title = encodeURIComponent("Mira este perfil de freelancer");
+  
+  const modalHtml = `
+    <div id="share-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div class="bg-white rounded-xl shadow-xl max-w-md w-full overflow-hidden">
+        <!-- Encabezado -->
+        <div class="bg-blue-600 px-6 py-4 flex justify-between items-center">
+          <h3 class="text-lg font-bold text-white">Compartir perfil</h3>
+          <button id="close-share-modal-x" class="text-white hover:text-blue-200">
+            <i class="fas fa-times"></i>
+          </button>
+        </div>
+        
+        <!-- Contenido -->
+        <div class="p-6">
+          <!-- Código QR -->
+          <div class="flex justify-center mb-6">
+            <img src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodedUrl}" 
+                 alt="Código QR" class="border-4 border-white shadow-md">
+          </div>
+          
+          <!-- Enlace -->
+          <div class="mb-6">
+            <label class="block text-sm font-medium text-gray-700 mb-2">Enlace público:</label>
+            <div class="flex">
+              <input id="share-url" type="text" value="${url}" 
+                     class="flex-1 border border-gray-300 rounded-l-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" 
+                     readonly>
+              <button onclick="copyToClipboard('share-url')" 
+                      class="bg-blue-600 text-white px-3 rounded-r-lg hover:bg-blue-700 transition">
+                <i class="fas fa-copy"></i>
+              </button>
+            </div>
+          </div>
+          
+          <!-- Redes sociales -->
+          <div class="mb-4">
+            <label class="block text-sm font-medium text-gray-700 mb-2">Compartir en:</label>
+            <div class="flex justify-center space-x-4">
+              <!-- WhatsApp -->
+              <a href="https://wa.me/?text=${title}%20${encodedUrl}" 
+                 target="_blank" 
+                 class="bg-green-500 text-white p-3 rounded-full hover:bg-green-600 transition">
+                <i class="fab fa-whatsapp"></i>
+              </a>
+              
+              <!-- LinkedIn -->
+              <a href="https://www.linkedin.com/sharing/share-offsite/?url=${encodedUrl}" 
+                 target="_blank" 
+                 class="bg-blue-700 text-white p-3 rounded-full hover:bg-blue-800 transition">
+                <i class="fab fa-linkedin-in"></i>
+              </a>
+              
+              <!-- Twitter -->
+              <a href="https://twitter.com/intent/tweet?text=${title}&url=${encodedUrl}" 
+                 target="_blank" 
+                 class="bg-blue-400 text-white p-3 rounded-full hover:bg-blue-500 transition">
+                <i class="fab fa-twitter"></i>
+              </a>
+              
+              <!-- Facebook -->
+              <a href="https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}" 
+                 target="_blank" 
+                 class="bg-blue-600 text-white p-3 rounded-full hover:bg-blue-700 transition">
+                <i class="fab fa-facebook-f"></i>
+              </a>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Pie -->
+        <div class="bg-gray-50 px-6 py-3 text-right">
+          <button id="close-share-modal-btn" class="text-gray-600 hover:text-gray-800 font-medium">
+            Cerrar
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+  
+  // Cerrar cualquier modal abierto primero
+  //closeModal();
+  
+  // Insertar el nuevo modal
+  document.body.insertAdjacentHTML('beforeend', modalHtml);
+  
+  // Configurar eventos de cierre
+  document.getElementById('close-share-modal-x').addEventListener('click', closeShareModal);
+  document.getElementById('close-share-modal-btn').addEventListener('click', closeShareModal);
+  
+  // Cerrar al hacer clic fuera del modal
+  document.getElementById('share-modal').addEventListener('click', function(e) {
+    if (e.target === this) {
+      closeShareModal();
+    }
+  });
+}
+
+function closeShareModal() {
+  const modal = document.getElementById('share-modal');
+  if (modal) {
+    modal.remove();
+  }
+}
+
+function closeAllModals() {
+  closeModal(); // Cierra el modal de detalles
+  closeShareModal(); // Cierra el modal de compartir
+}
+
+/**
+ * Copia texto al portapapeles
+ */
+function copyToClipboard(elementId) {
+  const copyText = document.getElementById(elementId);
+  copyText.select();
+  document.execCommand('copy');
+  showAlert('success', '¡Enlace copiado!');
+}
   </script>
