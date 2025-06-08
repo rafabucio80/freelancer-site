@@ -1,5 +1,5 @@
 function setSheetId() {
-  PropertiesService.getScriptProperties().setProperty("SHEET_ID", "1g2qyAjW9NLlaBFMj7YtnTn600ssLQlXkKH1tXsV--Y4"); 
+  PropertiesService.getScriptProperties().setProperty("SHEET_ID", "TU_SHEET_ID"); 
   Logger.log("SHEET_ID configurado correctamente.");
 }
 /**
